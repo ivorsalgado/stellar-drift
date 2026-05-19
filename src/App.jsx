@@ -1971,15 +1971,25 @@ export default function StellarDrift() {
       off.style.height = `${h}px`;
       const offCtx = off.getContext('2d');
       offCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      if (gsRef.current) {
+            if (gsRef.current) {
+        const prevW = gsRef.current.w;
+        const prevH = gsRef.current.h;
         gsRef.current.w = w;
         gsRef.current.h = h;
         gsRef.current.ship.x = w * PHYSICS.shipX;
+        // Re-center ship vertically if not actively playing
+        if (gsRef.current.state !== 'playing') {
+          gsRef.current.ship.y = h * 0.5;
+        } else if (prevH > 0) {
+          // Scale ship Y proportionally during play
+          gsRef.current.ship.y = (gsRef.current.ship.y / prevH) * h;
+        }
         gsRef.current.stars = makeStars(w, h, 60);
         gsRef.current.dust = makeDust(w, h, 30);
       } else {
         gsRef.current = initGameState(w, h);
       }
+
     };
     resize();
 
