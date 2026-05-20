@@ -4,124 +4,254 @@ import React, { useRef, useEffect, useState, useCallback } from 'react';
 // STELLAR DRIFT — A voyage through the solar system
 // ═══════════════════════════════════════════════════════════════
 
+// Monument-Valley-inspired palettes: soft pastels, dreamy gradients, painted
+// not photoreal. Each planet keeps a distinct mood within the same aesthetic.
 const PLANETS = [
   {
     name: 'MERCURY',
     tagline: 'The scorched world remembers the sun',
-    sky: ['#3a2618', '#5a3520', '#8a4a2a'],
-    accent: '#ffb46b',
-    columnFront: '#2a1f1c',
-    columnSide: '#1a1310',
-    columnEdge: '#ffc88a',
-    fog: 'rgba(255, 140, 60, 0.08)',
+    sky: ['#f7c79a', '#e89a7c', '#b76a72'],
+    accent: '#ffd2a8',
+    columnFront: '#a5677a',
+    columnSide: '#6e4458',
+    columnEdge: '#ffe8c8',
+    fog: 'rgba(255, 200, 160, 0.12)',
   },
   {
     name: 'VENUS',
     tagline: 'Beneath veils of gold, a hidden world',
-    sky: ['#5a3a1a', '#9a6a2a', '#d4a04a'],
-    accent: '#ffe49a',
-    columnFront: '#9a6a35',
-    columnSide: '#6a4520',
-    columnEdge: '#fff0bc',
-    fog: 'rgba(255, 210, 130, 0.12)',
+    sky: ['#fbe7c4', '#f3c98a', '#c89870'],
+    accent: '#fff0c8',
+    columnFront: '#b8946a',
+    columnSide: '#7a5e44',
+    columnEdge: '#fff4d4',
+    fog: 'rgba(255, 230, 180, 0.14)',
   },
   {
     name: 'EARTH',
     tagline: 'A pale blue dot, our fragile home',
-    sky: ['#0a1830', '#1a3a5a', '#3a7090'],
-    accent: '#8ad8ff',
-    columnFront: '#2a5a8a',
-    columnSide: '#15355a',
-    columnEdge: '#c8ecff',
-    fog: 'rgba(140, 200, 240, 0.06)',
+    sky: ['#cfb8d8', '#a8c8d8', '#7ea8c2'],
+    accent: '#dfe9f5',
+    columnFront: '#6a89a8',
+    columnSide: '#3f5878',
+    columnEdge: '#e8f1fa',
+    fog: 'rgba(200, 220, 240, 0.10)',
   },
   {
     name: 'MARS',
     tagline: 'Rust-red dust and silent canyons',
-    sky: ['#3a1a14', '#7a3520', '#b85a3a'],
-    accent: '#ff9a78',
-    columnFront: '#8a3520',
-    columnSide: '#5a2010',
-    columnEdge: '#ffb898',
-    fog: 'rgba(255, 140, 100, 0.10)',
+    sky: ['#f3c4a8', '#dc8e7a', '#a85c66'],
+    accent: '#ffc7a8',
+    columnFront: '#9c5a64',
+    columnSide: '#653d4a',
+    columnEdge: '#ffd8b8',
+    fog: 'rgba(240, 180, 150, 0.12)',
   },
   {
     name: 'JUPITER',
     tagline: 'A great red eye watches the storm',
-    sky: ['#5a3a1a', '#8a5a2a', '#c89868'],
-    accent: '#ffd49a',
-    columnFront: '#a07040',
-    columnSide: '#6a4525',
-    columnEdge: '#ffe8b8',
-    fog: 'rgba(255, 200, 140, 0.10)',
+    sky: ['#f3dcb4', '#e0b683', '#b87f5e'],
+    accent: '#ffe0ba',
+    columnFront: '#a47c5c',
+    columnSide: '#6a4f3a',
+    columnEdge: '#ffeacc',
+    fog: 'rgba(240, 210, 170, 0.12)',
   },
   {
     name: 'SATURN',
     tagline: 'Crowned by rings of ancient ice',
-    sky: ['#1a1a3a', '#2a2a5a', '#4a4a8a'],
-    accent: '#ffd478',
-    columnFront: '#a08850',
-    columnSide: '#6a5530',
-    columnEdge: '#ffe8a8',
-    fog: 'rgba(200, 180, 130, 0.06)',
+    sky: ['#d8c6e0', '#b8a8d0', '#8a7eae'],
+    accent: '#f3e0d0',
+    columnFront: '#7e7298',
+    columnSide: '#534a6a',
+    columnEdge: '#f5e9d8',
+    fog: 'rgba(220, 200, 220, 0.10)',
   },
   {
     name: 'URANUS',
     tagline: 'The tilted giant rolls through silence',
-    sky: ['#1a4a4a', '#3a7a7a', '#6ab0b0'],
-    accent: '#b8f0e8',
-    columnFront: '#6aa8a0',
-    columnSide: '#3a6868',
-    columnEdge: '#d8fff8',
-    fog: 'rgba(180, 240, 232, 0.10)',
+    sky: ['#c8e6dc', '#9fcfc2', '#7aae9a'],
+    accent: '#dff4eb',
+    columnFront: '#6a9c8e',
+    columnSide: '#42685e',
+    columnEdge: '#eafcf3',
+    fog: 'rgba(200, 232, 220, 0.12)',
   },
   {
     name: 'NEPTUNE',
     tagline: 'Cobalt depths where methane winds scream',
-    sky: ['#0a1450', '#1a2880', '#2a48a8'],
-    accent: '#6ab0ff',
-    columnFront: '#1a3880',
-    columnSide: '#0a1c50',
-    columnEdge: '#a0d4ff',
-    fog: 'rgba(80, 140, 240, 0.10)',
+    sky: ['#b3b8de', '#7a83c0', '#4d5694'],
+    accent: '#c9d6ff',
+    columnFront: '#5a6394',
+    columnSide: '#363c66',
+    columnEdge: '#e0e8ff',
+    fog: 'rgba(180, 190, 240, 0.12)',
   },
   {
     name: 'THE SUN',
     tagline: 'Inside the heart of fire itself',
-    sky: ['#fff0c0', '#ffb850', '#ff7020'],
-    accent: '#fff5d8',
-    columnFront: '#fff0b8',
-    columnSide: '#d8a040',
-    columnEdge: '#ffffff',
-    fog: 'rgba(255, 230, 160, 0.18)',
+    sky: ['#fff3d3', '#fcc78a', '#e2826c'],
+    accent: '#fff6dc',
+    columnFront: '#d49872',
+    columnSide: '#9a6650',
+    columnEdge: '#fff8e0',
+    fog: 'rgba(255, 220, 170, 0.18)',
   },
   {
     name: 'THE VOID',
     tagline: 'Beyond everything, only quiet light',
-    sky: ['#000000', '#050010', '#0a0518'],
-    accent: '#c890ff',
-    columnFront: '#080510',
-    columnSide: '#000000',
-    columnEdge: '#b078ff',
-    fog: 'rgba(140, 80, 200, 0.06)',
+    sky: ['#1a1230', '#241844', '#3a1f5c'],
+    accent: '#e0c0ff',
+    columnFront: '#2c1d4a',
+    columnSide: '#150c28',
+    columnEdge: '#d8b8ff',
+    fog: 'rgba(180, 130, 220, 0.10)',
   },
 ];
 
-const PHYSICS = {
-  gravity: 0.40,
-  thrust: -8.5,
-  baseSpeed: 3.2,
+// ── Configurable constants ─────────────────────────────────────────
+// Set this to your deployed game URL. Used in the share-score snippet.
+const VERCEL_URL = 'https://stellar-drift.vercel.app';
+
+// Ship designs available for unlock. Voyager is the original ship; the others
+// are alternative silhouettes the player can buy with Star Fragments.
+const SHIP_DESIGNS = [
+  { id: 'voyager', name: 'Voyager', cost: 0,   blurb: 'A balanced delta-wing classic.' },
+  { id: 'wedge',   name: 'Wedge',   cost: 50,  blurb: 'Sharp triangular fighter.' },
+  { id: 'orb',     name: 'Orb',     cost: 150, blurb: 'Spherical capsule with a soft halo.' },
+  { id: 'comet',   name: 'Comet',   cost: 300, blurb: 'Tail-heavy with a long flame.' },
+];
+
+// Hull colors. The "white" colorway is the unlocked default.
+const SHIP_COLORS = [
+  { id: 'white',    name: 'White',    main: '#e8eef8', mid: '#b8c4d8', shadow: '#6a7890', cost: 0  },
+  { id: 'coral',    name: 'Coral',    main: '#ffd2c0', mid: '#f29a90', shadow: '#a85a5a', cost: 25 },
+  { id: 'mint',     name: 'Mint',     main: '#d8f0e0', mid: '#90c8a8', shadow: '#4a7868', cost: 25 },
+  { id: 'lavender', name: 'Lavender', main: '#dccfee', mid: '#a890ce', shadow: '#5a4a7a', cost: 25 },
+  { id: 'gold',     name: 'Gold',     main: '#fbe89a', mid: '#dcb466', shadow: '#8a6c30', cost: 25 },
+];
+
+const LB_KEY = 'stellardrift_leaderboard_v1';
+const LB_LIMIT = 10;
+
+const loadLeaderboard = () => {
+  try {
+    const raw = localStorage.getItem(LB_KEY);
+    if (!raw) return [];
+    const arr = JSON.parse(raw);
+    return Array.isArray(arr) ? arr : [];
+  } catch { return []; }
+};
+const saveLeaderboard = (entries) => {
+  try { localStorage.setItem(LB_KEY, JSON.stringify(entries.slice(0, LB_LIMIT))); } catch {}
+};
+
+const loadFragments = () => {
+  try { return parseInt(localStorage.getItem('stellardrift_fragments') || '0', 10) || 0; } catch { return 0; }
+};
+const saveFragments = (n) => {
+  try { localStorage.setItem('stellardrift_fragments', String(Math.max(0, n | 0))); } catch {}
+};
+
+const loadOwned = (key) => {
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return [];
+    const arr = JSON.parse(raw);
+    return Array.isArray(arr) ? arr : [];
+  } catch { return []; }
+};
+const saveOwned = (key, arr) => {
+  try { localStorage.setItem(key, JSON.stringify(arr)); } catch {}
+};
+
+const loadSelection = () => {
+  try {
+    return {
+      ship: localStorage.getItem('stellardrift_ship') || 'voyager',
+      color: localStorage.getItem('stellardrift_color') || 'white',
+    };
+  } catch { return { ship: 'voyager', color: 'white' }; }
+};
+const saveSelection = (ship, color) => {
+  try {
+    localStorage.setItem('stellardrift_ship', ship);
+    localStorage.setItem('stellardrift_color', color);
+  } catch {}
+};
+
+const loadSettings = () => {
+  try {
+    return {
+      muted: localStorage.getItem('stellardrift_muted') === '1',
+      vibration: localStorage.getItem('stellardrift_vibration') !== '0',
+      colorBlind: localStorage.getItem('stellardrift_colorblind') === '1',
+    };
+  } catch { return { muted: false, vibration: true, colorBlind: false }; }
+};
+const saveSettings = (s) => {
+  try {
+    localStorage.setItem('stellardrift_muted', s.muted ? '1' : '0');
+    localStorage.setItem('stellardrift_vibration', s.vibration ? '1' : '0');
+    localStorage.setItem('stellardrift_colorblind', s.colorBlind ? '1' : '0');
+  } catch {}
+};
+
+// Reference resolution for visual scaling. All hardcoded pixel values
+// are tuned against this and multiplied by scale = min(w/BASE_W, h/BASE_H).
+const BASE_W = 400;
+const BASE_H = 800;
+const getScale = (w, h) => Math.min(w / BASE_W, h / BASE_H);
+
+// PHYSICS_BASE is in reference-resolution units. makePhysics(scale) returns
+// the scaled values used by the running game. Frame-count fields (spawn
+// intervals) and proportional fields (shipX) are not scaled.
+const PHYSICS_BASE = {
+  gravity: 0.22,
+  impulse: -5.0,
+  maxRiseSpeed: -8.5,
+  maxFallSpeed: 7.5,
+  baseSpeed: 3.0,
   speedPerObstacle: 0.08,
-  startGap: 175,
+  startGap: 195,
   gapShrinkPerPlanet: 8,
-  minGap: 120,
+  minGap: 140,
   startSpawnInterval: 95,
   spawnShrinkPerPlanet: 4,
   minSpawnInterval: 55,
   shipX: 0.28,
   shipRadius: 16,
   columnWidth: 70,
+  lateralTiltInfluence: 0.16,
+  lateralDamping: 0.93,
+  lateralRecenter: 0.02,
+  lateralAmbientSway: 0.04,
+  tiltSmoothing: 0.18,
 };
+
+const makePhysics = (scale) => ({
+  gravity: PHYSICS_BASE.gravity * scale,
+  impulse: PHYSICS_BASE.impulse * scale,
+  maxRiseSpeed: PHYSICS_BASE.maxRiseSpeed * scale,
+  maxFallSpeed: PHYSICS_BASE.maxFallSpeed * scale,
+  baseSpeed: PHYSICS_BASE.baseSpeed * scale,
+  speedPerObstacle: PHYSICS_BASE.speedPerObstacle * scale,
+  startGap: PHYSICS_BASE.startGap * scale,
+  gapShrinkPerPlanet: PHYSICS_BASE.gapShrinkPerPlanet * scale,
+  minGap: PHYSICS_BASE.minGap * scale,
+  startSpawnInterval: PHYSICS_BASE.startSpawnInterval,
+  spawnShrinkPerPlanet: PHYSICS_BASE.spawnShrinkPerPlanet,
+  minSpawnInterval: PHYSICS_BASE.minSpawnInterval,
+  shipX: PHYSICS_BASE.shipX,
+  shipRadius: PHYSICS_BASE.shipRadius * scale,
+  columnWidth: PHYSICS_BASE.columnWidth * scale,
+  lateralTiltInfluence: PHYSICS_BASE.lateralTiltInfluence * scale,
+  lateralDamping: PHYSICS_BASE.lateralDamping,
+  lateralRecenter: PHYSICS_BASE.lateralRecenter,
+  lateralAmbientSway: PHYSICS_BASE.lateralAmbientSway * scale,
+  tiltSmoothing: PHYSICS_BASE.tiltSmoothing,
+  scale,
+});
 
 export default function StellarDrift() {
   const canvasRef = useRef(null);
@@ -130,11 +260,54 @@ export default function StellarDrift() {
   const audioRef = useRef(null);
   const gsRef = useRef(null);
   const rafRef = useRef(null);
-  const [, forceUpdate] = useState(0);
-  const [muted, setMuted] = useState(false);
-  const mutedRef = useRef(false);
+  const initialSettings = loadSettings();
+  const initialSel = loadSelection();
+  const [view, setView] = useState('start');
+  const viewRef = useRef('start');
+  const [openPanel, setOpenPanel] = useState(null); // null | 'ships' | 'leaderboard' | 'settings'
+  const [fragments, setFragments] = useState(loadFragments());
+  const [ownedShips, setOwnedShips] = useState(() => {
+    const o = loadOwned('stellardrift_owned_ships');
+    return o.length ? o : ['voyager'];
+  });
+  const [ownedColors, setOwnedColors] = useState(() => {
+    const o = loadOwned('stellardrift_owned_colors');
+    return o.length ? o : ['white'];
+  });
+  const [selectedShip, setSelectedShip] = useState(initialSel.ship);
+  const [selectedColor, setSelectedColor] = useState(initialSel.color);
+  const [leaderboard, setLeaderboard] = useState(loadLeaderboard());
+  const [pendingEntry, setPendingEntry] = useState(null); // {score, planet}
+  const [initials, setInitials] = useState('AAA');
+  const [lastEntryId, setLastEntryId] = useState(null);
+  const [shareToast, setShareToast] = useState(false);
+  const [muted, setMuted] = useState(initialSettings.muted);
+  const [vibration, setVibration] = useState(initialSettings.vibration);
+  const [colorBlind, setColorBlind] = useState(initialSettings.colorBlind);
+  const mutedRef = useRef(initialSettings.muted);
+  const vibrationRef = useRef(initialSettings.vibration);
 
   useEffect(() => { mutedRef.current = muted; }, [muted]);
+  useEffect(() => { vibrationRef.current = vibration; }, [vibration]);
+  useEffect(() => { saveSettings({ muted, vibration, colorBlind }); }, [muted, vibration, colorBlind]);
+  useEffect(() => { saveSelection(selectedShip, selectedColor); }, [selectedShip, selectedColor]);
+  useEffect(() => { saveOwned('stellardrift_owned_ships', ownedShips); }, [ownedShips]);
+  useEffect(() => { saveOwned('stellardrift_owned_colors', ownedColors); }, [ownedColors]);
+  // Push current selection into the game state ref so the canvas renderer picks it up
+  useEffect(() => {
+    if (gsRef.current) {
+      gsRef.current.shipDesign = selectedShip;
+      gsRef.current.shipColor = selectedColor;
+    }
+  }, [selectedShip, selectedColor]);
+  // Hook callbacks for the canvas loop to notify React of state changes
+  useEffect(() => {
+    if (gsRef.current) {
+      gsRef.current.onFragmentChange = setFragments;
+      gsRef.current.onView = setView;
+      gsRef.current.onLeaderboardEligible = setPendingEntry;
+    }
+  });
 
   // ─────────────────────────────────────────────────────────────
   // AUDIO ENGINE
@@ -295,6 +468,53 @@ export default function StellarDrift() {
         o.start(t); o2.start(t);
         o.stop(t + 1.3); o2.stop(t + 1.3);
       });
+    } catch {}
+  }, []);
+
+  const playFragment = useCallback(() => {
+    if (mutedRef.current) return;
+    const a = audioRef.current;
+    if (!a) return;
+    try {
+      const t0 = a.ctx.currentTime;
+      // Sparkly chime — three high harmonics in a quick arpeggio
+      const notes = [1396.91, 1760.00, 2349.32];
+      notes.forEach((freq, i) => {
+        const when = t0 + i * 0.028;
+        const o = a.ctx.createOscillator();
+        o.type = 'sine';
+        o.frequency.setValueAtTime(freq, when);
+        const o2 = a.ctx.createOscillator();
+        o2.type = 'triangle';
+        o2.frequency.setValueAtTime(freq * 2, when);
+        const g = a.ctx.createGain();
+        g.gain.setValueAtTime(0, when);
+        g.gain.linearRampToValueAtTime(0.11, when + 0.005);
+        g.gain.exponentialRampToValueAtTime(0.001, when + 0.42);
+        o.connect(g); o2.connect(g);
+        g.connect(a.sfxBus);
+        o.start(when); o2.start(when);
+        o.stop(when + 0.45); o2.stop(when + 0.45);
+      });
+    } catch {}
+  }, []);
+
+  const playMenuTap = useCallback(() => {
+    if (mutedRef.current) return;
+    const a = audioRef.current;
+    if (!a) return;
+    try {
+      const t = a.ctx.currentTime;
+      const o = a.ctx.createOscillator();
+      o.type = 'sine';
+      o.frequency.setValueAtTime(880, t);
+      o.frequency.exponentialRampToValueAtTime(1320, t + 0.06);
+      const g = a.ctx.createGain();
+      g.gain.setValueAtTime(0, t);
+      g.gain.linearRampToValueAtTime(0.10, t + 0.005);
+      g.gain.exponentialRampToValueAtTime(0.001, t + 0.12);
+      o.connect(g); g.connect(a.sfxBus);
+      o.start(t); o.stop(t + 0.15);
     } catch {}
   }, []);
 
@@ -485,13 +705,13 @@ export default function StellarDrift() {
   // ─────────────────────────────────────────────────────────────
   // GAME STATE INIT
   // ─────────────────────────────────────────────────────────────
-  const makeStars = useCallback((w, h, count) => {
+  const makeStars = useCallback((w, h, count, s = 1) => {
     const stars = [];
     for (let i = 0; i < count; i++) {
       stars.push({
         x: Math.random() * w,
         y: Math.random() * h * 0.85,
-        r: Math.random() * 1.4 + 0.3,
+        r: (Math.random() * 1.4 + 0.3) * s,
         a: Math.random() * 0.6 + 0.2,
         tw: Math.random() * Math.PI * 2,
       });
@@ -499,15 +719,15 @@ export default function StellarDrift() {
     return stars;
   }, []);
 
-  const makeDust = useCallback((w, h, count) => {
+  const makeDust = useCallback((w, h, count, s = 1) => {
     const dust = [];
     for (let i = 0; i < count; i++) {
       dust.push({
         x: Math.random() * w,
         y: Math.random() * h,
-        vx: -(Math.random() * 0.5 + 0.2),
-        vy: (Math.random() - 0.5) * 0.1,
-        r: Math.random() * 1.8 + 0.5,
+        vx: -(Math.random() * 0.5 + 0.2) * s,
+        vy: (Math.random() - 0.5) * 0.1 * s,
+        r: (Math.random() * 1.8 + 0.5) * s,
         a: Math.random() * 0.35 + 0.1,
       });
     }
@@ -516,18 +736,27 @@ export default function StellarDrift() {
 
   const initGameState = useCallback((w, h) => {
     const best = parseInt(localStorage.getItem('stellardrift_best') || '0', 10);
+    const scale = getScale(w, h);
+    const phys = makePhysics(scale);
+    const sel = loadSelection();
     return {
       w, h,
+      scale,
+      phys,
+      shipDesign: sel.ship,
+      shipColor: sel.color,
       state: 'start', // 'start' | 'playing' | 'dead'
       ship: {
-        x: w * PHYSICS.shipX,
+        x: w * phys.shipX,
         y: h * 0.5,
+        vx: 0,
         vy: 0,
         tilt: 0,
         idleT: 0,
         trail: [],
       },
       columns: [],
+      fragments: [],
       particles: [],
       rings: [],
       popups: [],
@@ -541,10 +770,10 @@ export default function StellarDrift() {
       planetTransition: 0, // 0..1 (1 = fully on new planet)
       obstaclesInPlanet: 0,
       framesSinceSpawn: 999,
-      spawnInterval: PHYSICS.startSpawnInterval,
-      gap: PHYSICS.startGap,
-      stars: makeStars(w, h, 60),
-      dust: makeDust(w, h, 30),
+      spawnInterval: phys.startSpawnInterval,
+      gap: phys.startGap,
+      stars: makeStars(w, h, 60, scale),
+      dust: makeDust(w, h, 30, scale),
       shake: 0,
       flash: 0,
       transitionCard: 0, // counts down frames showing the card
@@ -559,7 +788,7 @@ export default function StellarDrift() {
   // ─────────────────────────────────────────────────────────────
   // DRAW HELPERS
   // ─────────────────────────────────────────────────────────────
-  const drawBackground = useCallback((ctx, w, h, planet, t) => {
+  const drawBackground = useCallback((ctx, w, h, planet, t, s = 1) => {
     // Sky gradient
     const g = ctx.createLinearGradient(0, 0, 0, h);
     g.addColorStop(0, planet.sky[0]);
@@ -572,113 +801,217 @@ export default function StellarDrift() {
     const name = planet.name;
 
     if (name === 'MERCURY') {
+      // Distant sun glow (upper-left), painted not photoreal
+      ctx.save();
+      const sunX = w * 0.18, sunY = h * 0.22, sunR = Math.min(w, h) * 0.10;
+      const sunHalo = ctx.createRadialGradient(sunX, sunY, 0, sunX, sunY, sunR * 3.4);
+      sunHalo.addColorStop(0, 'rgba(255, 235, 200, 0.55)');
+      sunHalo.addColorStop(0.4, 'rgba(255, 200, 160, 0.20)');
+      sunHalo.addColorStop(1, 'rgba(255, 180, 140, 0)');
+      ctx.fillStyle = sunHalo;
+      ctx.beginPath(); ctx.arc(sunX, sunY, sunR * 3.4, 0, Math.PI * 2); ctx.fill();
+      const sunBody = ctx.createRadialGradient(sunX - sunR * 0.2, sunY - sunR * 0.2, 0, sunX, sunY, sunR);
+      sunBody.addColorStop(0, '#fff7dc');
+      sunBody.addColorStop(0.7, '#fbd8a8');
+      sunBody.addColorStop(1, '#e9a888');
+      ctx.fillStyle = sunBody;
+      ctx.beginPath(); ctx.arc(sunX, sunY, sunR, 0, Math.PI * 2); ctx.fill();
+      ctx.restore();
       // Hot haze shimmer near horizon
       ctx.save();
       for (let i = 0; i < 3; i++) {
         const y = h * (0.75 + i * 0.04);
-        const grad = ctx.createLinearGradient(0, y, 0, y + 30);
-        grad.addColorStop(0, 'rgba(255, 180, 100, 0)');
-        grad.addColorStop(0.5, `rgba(255, 180, 100, ${0.08 + Math.sin(t * 0.04 + i) * 0.03})`);
-        grad.addColorStop(1, 'rgba(255, 180, 100, 0)');
+        const grad = ctx.createLinearGradient(0, y, 0, y + 30 * s);
+        grad.addColorStop(0, 'rgba(255, 200, 160, 0)');
+        grad.addColorStop(0.5, `rgba(255, 200, 160, ${0.10 + Math.sin(t * 0.04 + i) * 0.03})`);
+        grad.addColorStop(1, 'rgba(255, 200, 160, 0)');
         ctx.fillStyle = grad;
-        ctx.fillRect(0, y, w, 30);
+        ctx.fillRect(0, y, w, 30 * s);
       }
       ctx.restore();
-      // Cracked rocky horizon
+      // Heavily cratered terrain silhouette (painted, soft edges)
       ctx.save();
-      ctx.fillStyle = '#1a0e08';
+      const terrainGrad = ctx.createLinearGradient(0, h * 0.85, 0, h);
+      terrainGrad.addColorStop(0, '#7a3f50');
+      terrainGrad.addColorStop(1, '#3a1e2c');
+      ctx.fillStyle = terrainGrad;
       ctx.beginPath();
       ctx.moveTo(0, h);
-      const segs = 14;
+      const segs = 22;
       for (let i = 0; i <= segs; i++) {
         const x = (i / segs) * w;
-        const baseY = h * 0.88;
-        const v = Math.sin(i * 1.7) * 12 + Math.sin(i * 3.4) * 6;
+        const baseY = h * 0.86;
+        const v = (Math.sin(i * 1.7) * 14 + Math.sin(i * 3.4) * 6 + Math.sin(i * 5.1) * 3) * s;
         ctx.lineTo(x, baseY + v);
       }
       ctx.lineTo(w, h);
       ctx.closePath();
       ctx.fill();
-      // Crack highlights
-      ctx.strokeStyle = 'rgba(255, 140, 60, 0.3)';
-      ctx.lineWidth = 1;
-      for (let i = 0; i < 5; i++) {
+      // Craters along terrain — circles with shadowed inside, lit rim
+      const craters = [
+        { fx: 0.10, fy: 0.92, r: 0.045 },
+        { fx: 0.28, fy: 0.94, r: 0.030 },
+        { fx: 0.42, fy: 0.91, r: 0.055 },
+        { fx: 0.62, fy: 0.93, r: 0.038 },
+        { fx: 0.78, fy: 0.95, r: 0.050 },
+        { fx: 0.92, fy: 0.92, r: 0.028 },
+      ];
+      craters.forEach((c) => {
+        const cx = w * c.fx, cy = h * c.fy, cr = Math.min(w, h) * c.r;
+        // Shadow interior
+        ctx.fillStyle = 'rgba(30, 15, 22, 0.55)';
+        ctx.beginPath(); ctx.ellipse(cx, cy, cr, cr * 0.45, 0, 0, Math.PI * 2); ctx.fill();
+        // Lit rim toward sun (upper-left direction)
+        ctx.strokeStyle = 'rgba(255, 220, 190, 0.55)';
+        ctx.lineWidth = 1.5 * s;
         ctx.beginPath();
-        const sx = (i + 0.5) * w / 5;
-        ctx.moveTo(sx, h * 0.9);
-        ctx.lineTo(sx + 20, h);
+        ctx.ellipse(cx, cy, cr, cr * 0.45, 0, Math.PI * 1.1, Math.PI * 1.9);
         ctx.stroke();
-      }
+      });
       ctx.restore();
     }
 
     if (name === 'VENUS') {
-      // Horizontal cloud bands
+      // Thick swirling cloud bands with sinusoidal undulation
       ctx.save();
-      for (let i = 0; i < 7; i++) {
-        const y = (i / 7) * h + (t * 0.3 + i * 30) % (h / 7);
-        const grad = ctx.createLinearGradient(0, y - 20, 0, y + 20);
-        grad.addColorStop(0, 'rgba(255, 220, 140, 0)');
-        grad.addColorStop(0.5, `rgba(255, 220, 140, ${0.13 + (i % 2) * 0.05})`);
-        grad.addColorStop(1, 'rgba(255, 220, 140, 0)');
-        ctx.fillStyle = grad;
-        ctx.fillRect(0, y - 20, w, 40);
+      for (let i = 0; i < 9; i++) {
+        const baseY = (i / 9) * h;
+        const bandH = 36 * s;
+        // Sweeping bezier band — each segment offset by a sine wave
+        ctx.beginPath();
+        const segments = 16;
+        for (let j = 0; j <= segments; j++) {
+          const x = (j / segments) * w;
+          const wave = Math.sin(j * 0.6 + t * 0.015 + i * 0.9) * 8 * s;
+          const y = baseY + wave;
+          if (j === 0) ctx.moveTo(x, y);
+          else ctx.lineTo(x, y);
+        }
+        for (let j = segments; j >= 0; j--) {
+          const x = (j / segments) * w;
+          const wave = Math.sin(j * 0.6 + t * 0.015 + i * 0.9) * 8 * s;
+          ctx.lineTo(x, baseY + wave + bandH);
+        }
+        ctx.closePath();
+        const bandGrad = ctx.createLinearGradient(0, baseY, 0, baseY + bandH);
+        const alpha = 0.10 + (i % 2) * 0.06;
+        bandGrad.addColorStop(0, `rgba(255, 232, 188, 0)`);
+        bandGrad.addColorStop(0.5, `rgba(255, 224, 168, ${alpha})`);
+        bandGrad.addColorStop(1, `rgba(255, 232, 188, 0)`);
+        ctx.fillStyle = bandGrad;
+        ctx.fill();
       }
-      // Hazy glow overlay
+      // Hazy golden glow overlay
       const glow = ctx.createRadialGradient(w * 0.5, h * 0.4, 0, w * 0.5, h * 0.4, w * 0.7);
-      glow.addColorStop(0, 'rgba(255, 230, 160, 0.20)');
-      glow.addColorStop(1, 'rgba(255, 230, 160, 0)');
+      glow.addColorStop(0, 'rgba(255, 232, 180, 0.18)');
+      glow.addColorStop(1, 'rgba(255, 232, 180, 0)');
       ctx.fillStyle = glow;
       ctx.fillRect(0, 0, w, h);
       ctx.restore();
+      // Occasional lightning flash — pseudo-random based on time
+      const flashWindow = Math.floor(t / 220);
+      const flashSeed = (flashWindow * 1664525 + 1013904223) >>> 0;
+      const flashFrame = t % 220;
+      if (flashFrame < 7 && (flashSeed % 5) === 0) {
+        const fade = 1 - flashFrame / 7;
+        ctx.save();
+        // Sky-wide pale flash
+        ctx.fillStyle = `rgba(255, 248, 220, ${0.35 * fade})`;
+        ctx.fillRect(0, 0, w, h);
+        // Branching bolt
+        const boltX = w * (0.25 + ((flashSeed >> 4) % 50) / 100);
+        ctx.strokeStyle = `rgba(255, 250, 230, ${0.85 * fade})`;
+        ctx.lineWidth = 1.8 * s;
+        ctx.beginPath();
+        let px = boltX, py = h * 0.15;
+        ctx.moveTo(px, py);
+        for (let k = 0; k < 6; k++) {
+          px += (((flashSeed >> (k * 3)) & 7) - 3) * 8 * s;
+          py += (h * 0.10);
+          ctx.lineTo(px, py);
+        }
+        ctx.stroke();
+        ctx.restore();
+      }
     }
 
     if (name === 'EARTH') {
       // The big Earth in the background (upper-right)
       ctx.save();
-      const ex = w * 0.78, ey = h * 0.32, er = Math.min(w, h) * 0.18;
+      const ex = w * 0.74, ey = h * 0.30, er = Math.min(w, h) * 0.20;
       // Halo
       const halo = ctx.createRadialGradient(ex, ey, er * 0.95, ex, ey, er * 1.5);
-      halo.addColorStop(0, 'rgba(140, 200, 255, 0.35)');
-      halo.addColorStop(1, 'rgba(140, 200, 255, 0)');
+      halo.addColorStop(0, 'rgba(170, 210, 240, 0.30)');
+      halo.addColorStop(1, 'rgba(170, 210, 240, 0)');
       ctx.fillStyle = halo;
       ctx.beginPath(); ctx.arc(ex, ey, er * 1.5, 0, Math.PI * 2); ctx.fill();
-      // Earth body
+      // Ocean body (soft pastel cobalt)
       const earthGrad = ctx.createRadialGradient(ex - er * 0.3, ey - er * 0.3, 0, ex, ey, er);
-      earthGrad.addColorStop(0, '#5ab4ff');
-      earthGrad.addColorStop(0.7, '#1e5a9a');
-      earthGrad.addColorStop(1, '#0a2848');
+      earthGrad.addColorStop(0, '#a6c8e0');
+      earthGrad.addColorStop(0.6, '#6a8eb4');
+      earthGrad.addColorStop(1, '#324a6e');
       ctx.fillStyle = earthGrad;
       ctx.beginPath(); ctx.arc(ex, ey, er, 0, Math.PI * 2); ctx.fill();
-      // Continents (animated drift)
+      // Continents (soft sage green, clearly visible shapes)
       ctx.save();
       ctx.beginPath(); ctx.arc(ex, ey, er, 0, Math.PI * 2); ctx.clip();
-      ctx.fillStyle = '#3a8a4a';
-      const drift = (t * 0.2) % (er * 2);
-      for (let i = 0; i < 4; i++) {
-        const cx = ex - er + ((i * er * 0.7 + drift) % (er * 2));
-        const cy = ey + Math.sin(i * 1.7) * er * 0.4;
+      const drift = (t * 0.15) % (er * 2);
+      // Painted continent silhouettes — vaguely Americas + Africa shapes
+      const continents = [
+        { dx: -0.35, dy: -0.10, rx: 0.18, ry: 0.30, rot: 0.4 },
+        { dx: -0.10, dy:  0.20, rx: 0.22, ry: 0.18, rot: -0.2 },
+        { dx:  0.30, dy: -0.15, rx: 0.20, ry: 0.32, rot: 0.5 },
+        { dx:  0.15, dy:  0.32, rx: 0.16, ry: 0.10, rot: 0.0 },
+      ];
+      ctx.fillStyle = '#86a878';
+      continents.forEach((c, i) => {
+        const cx = ex + (c.dx * er * 2 + drift) % (er * 2) - er;
+        const cy = ey + c.dy * er * 2;
         ctx.beginPath();
-        ctx.ellipse(cx, cy, er * 0.25, er * 0.18, i, 0, Math.PI * 2);
+        ctx.ellipse(cx, cy, er * c.rx, er * c.ry, c.rot + i * 0.05, 0, Math.PI * 2);
         ctx.fill();
-      }
-      // Clouds
-      ctx.fillStyle = 'rgba(255, 255, 255, 0.4)';
-      for (let i = 0; i < 5; i++) {
+        // Inland shadow for depth
+        ctx.fillStyle = 'rgba(60, 80, 50, 0.30)';
+        ctx.beginPath();
+        ctx.ellipse(cx + er * 0.04, cy + er * 0.05, er * c.rx * 0.6, er * c.ry * 0.6, c.rot + i * 0.05, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#86a878';
+      });
+      // Soft cloud swirls
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.35)';
+      for (let i = 0; i < 6; i++) {
         const cx = ex - er + ((i * er * 0.5 + drift * 1.4 + 50) % (er * 2));
         const cy = ey - er * 0.5 + Math.sin(i * 2.1 + t * 0.01) * er * 0.6;
         ctx.beginPath();
-        ctx.ellipse(cx, cy, er * 0.3, er * 0.1, 0, 0, Math.PI * 2);
+        ctx.ellipse(cx, cy, er * 0.28, er * 0.09, Math.sin(i) * 0.3, 0, Math.PI * 2);
         ctx.fill();
       }
       ctx.restore();
+      // The Moon — small pale companion
+      const mx = w * 0.30, my = h * 0.18, mr = Math.min(w, h) * 0.045;
+      const moonHalo = ctx.createRadialGradient(mx, my, mr * 0.9, mx, my, mr * 1.8);
+      moonHalo.addColorStop(0, 'rgba(240, 235, 220, 0.30)');
+      moonHalo.addColorStop(1, 'rgba(240, 235, 220, 0)');
+      ctx.fillStyle = moonHalo;
+      ctx.beginPath(); ctx.arc(mx, my, mr * 1.8, 0, Math.PI * 2); ctx.fill();
+      const moonGrad = ctx.createRadialGradient(mx - mr * 0.3, my - mr * 0.3, 0, mx, my, mr);
+      moonGrad.addColorStop(0, '#f3edd8');
+      moonGrad.addColorStop(0.7, '#c8bea0');
+      moonGrad.addColorStop(1, '#6a5e48');
+      ctx.fillStyle = moonGrad;
+      ctx.beginPath(); ctx.arc(mx, my, mr, 0, Math.PI * 2); ctx.fill();
+      // Subtle moon craters
+      ctx.fillStyle = 'rgba(80, 70, 55, 0.30)';
+      ctx.beginPath(); ctx.arc(mx + mr * 0.1, my + mr * 0.15, mr * 0.18, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(mx - mr * 0.25, my - mr * 0.10, mr * 0.12, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(mx + mr * 0.30, my - mr * 0.20, mr * 0.10, 0, Math.PI * 2); ctx.fill();
       // Cloud wisps across the sky
-      ctx.fillStyle = 'rgba(220, 235, 250, 0.18)';
+      ctx.fillStyle = 'rgba(245, 235, 250, 0.20)';
       for (let i = 0; i < 4; i++) {
-        const cx = ((i * 250 - t * 0.3) % (w + 200)) - 100;
-        const cy = h * (0.15 + i * 0.12);
+        const cx = ((i * 250 * s - t * 0.3) % (w + 200 * s)) - 100 * s;
+        const cy = h * (0.50 + i * 0.10);
         ctx.beginPath();
-        ctx.ellipse(cx, cy, 80, 14, 0, 0, Math.PI * 2);
+        ctx.ellipse(cx, cy, 80 * s, 14 * s, 0, 0, Math.PI * 2);
         ctx.fill();
       }
       ctx.restore();
@@ -688,26 +1021,79 @@ export default function StellarDrift() {
       // Horizon haze
       ctx.save();
       const haze = ctx.createLinearGradient(0, h * 0.6, 0, h);
-      haze.addColorStop(0, 'rgba(255, 160, 130, 0)');
-      haze.addColorStop(1, 'rgba(255, 170, 140, 0.25)');
+      haze.addColorStop(0, 'rgba(240, 180, 150, 0)');
+      haze.addColorStop(1, 'rgba(240, 180, 150, 0.30)');
       ctx.fillStyle = haze;
       ctx.fillRect(0, h * 0.6, w, h * 0.4);
-      // Polar ice cap (small in the upper-right)
-      const px = w * 0.82, py = h * 0.22, pr = Math.min(w, h) * 0.12;
+      // Mars planet (upper-right) with visible polar ice cap
+      const px = w * 0.78, py = h * 0.24, pr = Math.min(w, h) * 0.14;
       const halo = ctx.createRadialGradient(px, py, pr * 0.85, px, py, pr * 1.4);
-      halo.addColorStop(0, 'rgba(255, 240, 230, 0.3)');
-      halo.addColorStop(1, 'rgba(255, 240, 230, 0)');
+      halo.addColorStop(0, 'rgba(255, 220, 200, 0.30)');
+      halo.addColorStop(1, 'rgba(255, 220, 200, 0)');
       ctx.fillStyle = halo;
       ctx.beginPath(); ctx.arc(px, py, pr * 1.4, 0, Math.PI * 2); ctx.fill();
       const grad = ctx.createRadialGradient(px - pr * 0.3, py - pr * 0.3, 0, px, py, pr);
-      grad.addColorStop(0, '#d87055');
-      grad.addColorStop(1, '#6a2818');
+      grad.addColorStop(0, '#e09a82');
+      grad.addColorStop(0.7, '#a45a5e');
+      grad.addColorStop(1, '#5a2a36');
       ctx.fillStyle = grad;
       ctx.beginPath(); ctx.arc(px, py, pr, 0, Math.PI * 2); ctx.fill();
-      ctx.fillStyle = 'rgba(255, 245, 235, 0.85)';
+      // Polar ice cap on top
+      ctx.save();
+      ctx.beginPath(); ctx.arc(px, py, pr, 0, Math.PI * 2); ctx.clip();
+      ctx.fillStyle = 'rgba(255, 248, 240, 0.90)';
       ctx.beginPath();
-      ctx.ellipse(px, py - pr * 0.7, pr * 0.55, pr * 0.25, 0, 0, Math.PI * 2);
+      ctx.ellipse(px, py - pr * 0.78, pr * 0.55, pr * 0.22, 0, 0, Math.PI * 2);
       ctx.fill();
+      // Faint surface marks (Valles Marineris suggestion)
+      ctx.strokeStyle = 'rgba(80, 30, 30, 0.30)';
+      ctx.lineWidth = 1.5 * s;
+      ctx.beginPath();
+      ctx.moveTo(px - pr * 0.6, py + pr * 0.15);
+      ctx.quadraticCurveTo(px, py + pr * 0.05, px + pr * 0.55, py + pr * 0.20);
+      ctx.stroke();
+      ctx.restore();
+      // Phobos and Deimos — two small specks
+      const ph_x = px + pr * 1.6, ph_y = py + pr * 0.3, ph_r = pr * 0.10;
+      const ph_grad = ctx.createRadialGradient(ph_x - ph_r * 0.3, ph_y - ph_r * 0.3, 0, ph_x, ph_y, ph_r);
+      ph_grad.addColorStop(0, '#bcaa9a');
+      ph_grad.addColorStop(1, '#5a4a3e');
+      ctx.fillStyle = ph_grad;
+      ctx.beginPath(); ctx.arc(ph_x, ph_y, ph_r, 0, Math.PI * 2); ctx.fill();
+      const de_x = px - pr * 1.45, de_y = py - pr * 0.4, de_r = pr * 0.07;
+      const de_grad = ctx.createRadialGradient(de_x - de_r * 0.3, de_y - de_r * 0.3, 0, de_x, de_y, de_r);
+      de_grad.addColorStop(0, '#c8b6a6');
+      de_grad.addColorStop(1, '#6a5848');
+      ctx.fillStyle = de_grad;
+      ctx.beginPath(); ctx.arc(de_x, de_y, de_r, 0, Math.PI * 2); ctx.fill();
+      // Dust devils — vertical spiraling cyclones near ground
+      const devils = [{ fx: 0.18, phase: 0 }, { fx: 0.62, phase: 1.7 }];
+      devils.forEach((d) => {
+        const baseX = w * d.fx;
+        const baseY = h * 0.92;
+        const height = h * 0.18;
+        ctx.save();
+        ctx.strokeStyle = 'rgba(240, 190, 160, 0.35)';
+        ctx.lineWidth = 2 * s;
+        ctx.beginPath();
+        const turns = 12;
+        for (let k = 0; k <= turns; k++) {
+          const yProgress = k / turns;
+          const y = baseY - height * yProgress;
+          const ampl = (1 - yProgress) * 14 * s;
+          const xWobble = Math.sin(t * 0.06 + d.phase + k * 0.7) * ampl;
+          if (k === 0) ctx.moveTo(baseX + xWobble, y);
+          else ctx.lineTo(baseX + xWobble, y);
+        }
+        ctx.stroke();
+        // Base dust puff
+        const puff = ctx.createRadialGradient(baseX, baseY, 0, baseX, baseY, 18 * s);
+        puff.addColorStop(0, 'rgba(240, 190, 160, 0.40)');
+        puff.addColorStop(1, 'rgba(240, 190, 160, 0)');
+        ctx.fillStyle = puff;
+        ctx.beginPath(); ctx.arc(baseX, baseY, 18 * s, 0, Math.PI * 2); ctx.fill();
+        ctx.restore();
+      });
       ctx.restore();
     }
 
@@ -733,60 +1119,110 @@ export default function StellarDrift() {
       });
       // Storm streaks
       ctx.strokeStyle = 'rgba(255, 240, 200, 0.12)';
-      ctx.lineWidth = 1.5;
+      ctx.lineWidth = 1.5 * s;
       for (let i = 0; i < 18; i++) {
-        const y = (i / 18) * h + Math.sin(t * 0.02 + i) * 4;
-        const xOff = (t * 0.6 + i * 60) % (w + 100) - 100;
+        const y = (i / 18) * h + Math.sin(t * 0.02 + i) * 4 * s;
+        const xOff = (t * 0.6 + i * 60 * s) % (w + 100 * s) - 100 * s;
         ctx.beginPath();
         ctx.moveTo(xOff, y);
-        ctx.lineTo(xOff + 70, y + Math.sin(i) * 3);
+        ctx.lineTo(xOff + 70 * s, y + Math.sin(i) * 3 * s);
         ctx.stroke();
       }
-      // Great Red Spot
+      // Great Red Spot — softened to fit pastel palette
       const rx = w * 0.72, ry = h * 0.50;
       const pulse = 0.85 + Math.sin(t * 0.025) * 0.15;
+      const spotR = 70 * s;
       ctx.save();
       ctx.translate(rx, ry);
       ctx.scale(1, 0.55);
-      const sg = ctx.createRadialGradient(0, 0, 0, 0, 0, 70 * pulse);
-      sg.addColorStop(0, 'rgba(220, 80, 50, 0.85)');
-      sg.addColorStop(0.7, 'rgba(160, 50, 30, 0.5)');
-      sg.addColorStop(1, 'rgba(120, 40, 20, 0)');
+      const sg = ctx.createRadialGradient(0, 0, 0, 0, 0, spotR * pulse);
+      sg.addColorStop(0, 'rgba(214, 124, 96, 0.85)');
+      sg.addColorStop(0.6, 'rgba(168, 80, 78, 0.55)');
+      sg.addColorStop(1, 'rgba(120, 60, 60, 0)');
       ctx.fillStyle = sg;
-      ctx.beginPath(); ctx.arc(0, 0, 70 * pulse, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(0, 0, spotR * pulse, 0, Math.PI * 2); ctx.fill();
+      // Inner darker eye
+      const eye = ctx.createRadialGradient(0, 0, 0, 0, 0, spotR * 0.35);
+      eye.addColorStop(0, 'rgba(150, 70, 60, 0.55)');
+      eye.addColorStop(1, 'rgba(150, 70, 60, 0)');
+      ctx.fillStyle = eye;
+      ctx.beginPath(); ctx.arc(0, 0, spotR * 0.35, 0, Math.PI * 2); ctx.fill();
       ctx.restore();
+      // Io — small fiery-yellow moon orbiting drift
+      const ioOrb = t * 0.0025;
+      const io_cx = w * 0.25 + Math.cos(ioOrb) * w * 0.04;
+      const io_cy = h * 0.20 + Math.sin(ioOrb) * h * 0.02;
+      const io_r = Math.min(w, h) * 0.025;
+      const ioHalo = ctx.createRadialGradient(io_cx, io_cy, io_r * 0.9, io_cx, io_cy, io_r * 2);
+      ioHalo.addColorStop(0, 'rgba(255, 220, 150, 0.40)');
+      ioHalo.addColorStop(1, 'rgba(255, 220, 150, 0)');
+      ctx.fillStyle = ioHalo;
+      ctx.beginPath(); ctx.arc(io_cx, io_cy, io_r * 2, 0, Math.PI * 2); ctx.fill();
+      const ioGrad = ctx.createRadialGradient(io_cx - io_r * 0.3, io_cy - io_r * 0.3, 0, io_cx, io_cy, io_r);
+      ioGrad.addColorStop(0, '#f9e090');
+      ioGrad.addColorStop(0.7, '#d49860');
+      ioGrad.addColorStop(1, '#6a4030');
+      ctx.fillStyle = ioGrad;
+      ctx.beginPath(); ctx.arc(io_cx, io_cy, io_r, 0, Math.PI * 2); ctx.fill();
+      // Europa — small pale-blue moon
+      const euOrb = t * 0.0018 + 2.1;
+      const eu_cx = w * 0.40 + Math.cos(euOrb) * w * 0.05;
+      const eu_cy = h * 0.12 + Math.sin(euOrb) * h * 0.015;
+      const eu_r = Math.min(w, h) * 0.020;
+      const euHalo = ctx.createRadialGradient(eu_cx, eu_cy, eu_r * 0.9, eu_cx, eu_cy, eu_r * 2);
+      euHalo.addColorStop(0, 'rgba(200, 220, 240, 0.35)');
+      euHalo.addColorStop(1, 'rgba(200, 220, 240, 0)');
+      ctx.fillStyle = euHalo;
+      ctx.beginPath(); ctx.arc(eu_cx, eu_cy, eu_r * 2, 0, Math.PI * 2); ctx.fill();
+      const euGrad = ctx.createRadialGradient(eu_cx - eu_r * 0.3, eu_cy - eu_r * 0.3, 0, eu_cx, eu_cy, eu_r);
+      euGrad.addColorStop(0, '#dee8f0');
+      euGrad.addColorStop(0.7, '#92aabe');
+      euGrad.addColorStop(1, '#3a5068');
+      ctx.fillStyle = euGrad;
+      ctx.beginPath(); ctx.arc(eu_cx, eu_cy, eu_r, 0, Math.PI * 2); ctx.fill();
       ctx.restore();
     }
 
     if (name === 'SATURN') {
-      // Saturn upper-right with rings
+      // Saturn dominant upper background — rings span wide
       ctx.save();
-      const sx = w * 0.78, sy = h * 0.30;
-      const sr = Math.min(w, h) * 0.16;
-      // Rings back half (behind planet)
-      ctx.save();
-      ctx.translate(sx, sy);
-      ctx.rotate(-0.3);
-      ctx.scale(1, 0.22);
-      ctx.beginPath(); ctx.arc(0, 0, sr * 2.0, Math.PI, Math.PI * 2);
-      ctx.strokeStyle = 'rgba(220, 180, 120, 0.7)'; ctx.lineWidth = 8; ctx.stroke();
-      ctx.beginPath(); ctx.arc(0, 0, sr * 1.7, Math.PI, Math.PI * 2);
-      ctx.strokeStyle = 'rgba(255, 230, 160, 0.5)'; ctx.lineWidth = 4; ctx.stroke();
-      ctx.beginPath(); ctx.arc(0, 0, sr * 1.45, Math.PI, Math.PI * 2);
-      ctx.strokeStyle = 'rgba(255, 220, 150, 0.4)'; ctx.lineWidth = 3; ctx.stroke();
-      ctx.restore();
+      const sx = w * 0.55, sy = h * 0.32;
+      const sr = Math.min(w, h) * 0.20;
+      // Ring system definition with explicit Cassini Division
+      const ringBands = [
+        { r0: 1.30, r1: 1.45, color: 'rgba(232, 210, 178, 0.55)' }, // D/C
+        { r0: 1.48, r1: 1.78, color: 'rgba(248, 232, 200, 0.85)' }, // B (broadest, brightest)
+        // Cassini Division gap from 1.78 to 1.90
+        { r0: 1.90, r1: 2.15, color: 'rgba(220, 200, 168, 0.70)' }, // A
+        { r0: 2.18, r1: 2.30, color: 'rgba(200, 180, 158, 0.35)' }, // F (faint outer)
+      ];
+      const drawRing = (rOuter, rInner, color, startA, endA) => {
+        ctx.save();
+        ctx.translate(sx, sy);
+        ctx.rotate(-0.25);
+        ctx.scale(1, 0.20);
+        ctx.beginPath();
+        ctx.arc(0, 0, sr * rOuter, startA, endA);
+        ctx.arc(0, 0, sr * rInner, endA, startA, true);
+        ctx.closePath();
+        ctx.fillStyle = color;
+        ctx.fill();
+        ctx.restore();
+      };
+      // Rings — back half (behind planet)
+      ringBands.forEach((b) => drawRing(b.r1, b.r0, b.color, Math.PI, Math.PI * 2));
       // Planet body
       const grad = ctx.createRadialGradient(sx - sr * 0.3, sy - sr * 0.3, 0, sx, sy, sr);
-      grad.addColorStop(0, '#ffe0a0');
-      grad.addColorStop(0.6, '#c89858');
-      grad.addColorStop(1, '#5a3818');
+      grad.addColorStop(0, '#fbe8c4');
+      grad.addColorStop(0.6, '#c8a888');
+      grad.addColorStop(1, '#6c5470');
       ctx.fillStyle = grad;
       ctx.beginPath(); ctx.arc(sx, sy, sr, 0, Math.PI * 2); ctx.fill();
-      // Bands
+      // Soft horizontal bands
       ctx.save();
       ctx.beginPath(); ctx.arc(sx, sy, sr, 0, Math.PI * 2); ctx.clip();
-      ctx.strokeStyle = 'rgba(100, 60, 20, 0.25)';
-      ctx.lineWidth = 3;
+      ctx.strokeStyle = 'rgba(120, 90, 110, 0.20)';
+      ctx.lineWidth = 3 * s;
       for (let i = -3; i <= 3; i++) {
         ctx.beginPath();
         ctx.moveTo(sx - sr, sy + i * sr * 0.25);
@@ -794,98 +1230,147 @@ export default function StellarDrift() {
         ctx.stroke();
       }
       ctx.restore();
-      // Front half of rings
-      ctx.save();
-      ctx.translate(sx, sy);
-      ctx.rotate(-0.3);
-      ctx.scale(1, 0.22);
-      ctx.beginPath(); ctx.arc(0, 0, sr * 2.0, 0, Math.PI);
-      ctx.strokeStyle = 'rgba(220, 180, 120, 0.85)'; ctx.lineWidth = 8; ctx.stroke();
-      ctx.beginPath(); ctx.arc(0, 0, sr * 1.7, 0, Math.PI);
-      ctx.strokeStyle = 'rgba(255, 230, 160, 0.7)'; ctx.lineWidth = 4; ctx.stroke();
-      ctx.beginPath(); ctx.arc(0, 0, sr * 1.45, 0, Math.PI);
-      ctx.strokeStyle = 'rgba(255, 220, 150, 0.55)'; ctx.lineWidth = 3; ctx.stroke();
-      ctx.restore();
+      // Rings — front half
+      ringBands.forEach((b) => drawRing(b.r1, b.r0, b.color, 0, Math.PI));
       // Ring shadow on planet
       ctx.save();
       ctx.beginPath(); ctx.arc(sx, sy, sr, 0, Math.PI * 2); ctx.clip();
-      ctx.fillStyle = 'rgba(40, 25, 10, 0.35)';
+      ctx.fillStyle = 'rgba(60, 40, 60, 0.35)';
       ctx.beginPath();
-      ctx.ellipse(sx, sy + sr * 0.05, sr, sr * 0.10, -0.3, 0, Math.PI * 2);
+      ctx.ellipse(sx, sy + sr * 0.05, sr, sr * 0.10, -0.25, 0, Math.PI * 2);
       ctx.fill();
       ctx.restore();
       ctx.restore();
     }
 
     if (name === 'URANUS') {
-      // Tilted rings across the background
+      // Uranus planet, tilted at famous ~98 degrees so the pole faces us —
+      // its rings appear nearly vertical (perpendicular to the ecliptic).
       ctx.save();
-      const cx = w * 0.5, cy = h * 0.45;
-      ctx.translate(cx, cy);
-      ctx.rotate(-1.0);
-      ctx.scale(1, 0.35);
-      for (let i = 0; i < 5; i++) {
-        ctx.beginPath();
-        ctx.arc(0, 0, Math.min(w, h) * (0.4 + i * 0.06), 0, Math.PI * 2);
-        ctx.strokeStyle = `rgba(180, 240, 232, ${0.10 + i * 0.04})`;
-        ctx.lineWidth = 2;
-        ctx.stroke();
-      }
+      const ux = w * 0.74, uy = h * 0.30, ur = Math.min(w, h) * 0.18;
+      const tiltAngle = (98 * Math.PI) / 180; // ring plane tilt
+      // Halo
+      const halo = ctx.createRadialGradient(ux, uy, ur * 0.95, ux, uy, ur * 1.6);
+      halo.addColorStop(0, 'rgba(180, 232, 220, 0.30)');
+      halo.addColorStop(1, 'rgba(180, 232, 220, 0)');
+      ctx.fillStyle = halo;
+      ctx.beginPath(); ctx.arc(ux, uy, ur * 1.6, 0, Math.PI * 2); ctx.fill();
+      // Planet body — soft mint with pole-on lighting
+      const ugrad = ctx.createRadialGradient(ux - ur * 0.3, uy - ur * 0.3, 0, ux, uy, ur);
+      ugrad.addColorStop(0, '#d8f0e6');
+      ugrad.addColorStop(0.6, '#90c0b2');
+      ugrad.addColorStop(1, '#3e6b62');
+      ctx.fillStyle = ugrad;
+      ctx.beginPath(); ctx.arc(ux, uy, ur, 0, Math.PI * 2); ctx.fill();
+      // Polar cap (lighter at the visible pole, hinting at the tilt)
+      ctx.save();
+      ctx.beginPath(); ctx.arc(ux, uy, ur, 0, Math.PI * 2); ctx.clip();
+      ctx.fillStyle = 'rgba(232, 248, 244, 0.45)';
+      ctx.beginPath();
+      ctx.ellipse(ux + ur * 0.05, uy - ur * 0.10, ur * 0.65, ur * 0.55, tiltAngle - Math.PI / 2, 0, Math.PI * 2);
+      ctx.fill();
       ctx.restore();
-      // Ring particles
-      ctx.fillStyle = 'rgba(220, 250, 245, 0.55)';
-      for (let i = 0; i < 20; i++) {
+      // Rings — nearly vertical because the planet is tipped over.
+      // Drawn back-half then planet then front-half so the planet occludes properly.
+      const drawURing = (rMult, alpha, lwScale, startA, endA) => {
+        ctx.save();
+        ctx.translate(ux, uy);
+        ctx.rotate(tiltAngle - Math.PI / 2);
+        ctx.scale(0.18, 1);
+        ctx.beginPath();
+        ctx.arc(0, 0, ur * rMult, startA, endA);
+        ctx.strokeStyle = `rgba(220, 248, 240, ${alpha})`;
+        ctx.lineWidth = lwScale * s;
+        ctx.stroke();
+        ctx.restore();
+      };
+      // Back half — top semicircle in pre-rotation space
+      [1.40, 1.55, 1.72, 1.90].forEach((rm, i) => {
+        drawURing(rm, 0.32 - i * 0.05, 2 - i * 0.3, Math.PI, Math.PI * 2);
+      });
+      // Front half — bottom semicircle
+      [1.40, 1.55, 1.72, 1.90].forEach((rm, i) => {
+        drawURing(rm, 0.55 - i * 0.08, 2 - i * 0.3, 0, Math.PI);
+      });
+      ctx.restore();
+      // Distant background ring particles (subtle sparkle)
+      ctx.save();
+      ctx.fillStyle = 'rgba(220, 250, 245, 0.50)';
+      for (let i = 0; i < 24; i++) {
         const x = ((i * 73 + t * 0.6) % w);
         const y = ((i * 47 + t * 0.4) % h);
-        ctx.beginPath(); ctx.arc(x, y, 1.2, 0, Math.PI * 2); ctx.fill();
+        ctx.beginPath(); ctx.arc(x, y, 1.2 * s, 0, Math.PI * 2); ctx.fill();
       }
+      ctx.restore();
     }
 
     if (name === 'NEPTUNE') {
-      // Churning storm clouds
       ctx.save();
+      // Churning lavender-cobalt storm clouds
+      const cloudR = 130 * s;
       for (let i = 0; i < 5; i++) {
-        const cx = ((i * 200 + t * 0.4) % (w + 300)) - 150;
-        const cy = h * (0.2 + i * 0.15);
-        const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, 120);
-        grad.addColorStop(0, 'rgba(100, 140, 220, 0.30)');
-        grad.addColorStop(1, 'rgba(100, 140, 220, 0)');
+        const cx = ((i * 200 * s + t * 0.4) % (w + 300 * s)) - 150 * s;
+        const cy = h * (0.20 + i * 0.15);
+        const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, cloudR);
+        grad.addColorStop(0, 'rgba(160, 170, 230, 0.30)');
+        grad.addColorStop(1, 'rgba(160, 170, 230, 0)');
         ctx.fillStyle = grad;
-        ctx.beginPath(); ctx.arc(cx, cy, 120, 0, Math.PI * 2); ctx.fill();
+        ctx.beginPath(); ctx.arc(cx, cy, cloudR, 0, Math.PI * 2); ctx.fill();
       }
-      // Fast methane streaks
-      ctx.strokeStyle = 'rgba(220, 235, 255, 0.45)';
-      ctx.lineWidth = 1.5;
-      for (let i = 0; i < 12; i++) {
-        const xOff = ((t * 3 + i * 130) % (w + 200)) - 100;
-        const y = h * (0.1 + (i * 0.07) % 0.8);
+      // The Great Dark Spot — a deep oval bruise rotating slowly
+      const dsx = w * 0.62, dsy = h * 0.38;
+      const dsR = Math.min(w, h) * 0.13;
+      const dsPulse = 0.92 + Math.sin(t * 0.02) * 0.08;
+      ctx.save();
+      ctx.translate(dsx, dsy);
+      ctx.rotate(Math.sin(t * 0.003) * 0.12);
+      ctx.scale(1, 0.62);
+      const dsGrad = ctx.createRadialGradient(0, 0, 0, 0, 0, dsR * dsPulse);
+      dsGrad.addColorStop(0, 'rgba(40, 50, 100, 0.85)');
+      dsGrad.addColorStop(0.6, 'rgba(60, 70, 130, 0.55)');
+      dsGrad.addColorStop(1, 'rgba(80, 90, 150, 0)');
+      ctx.fillStyle = dsGrad;
+      ctx.beginPath(); ctx.arc(0, 0, dsR * dsPulse, 0, Math.PI * 2); ctx.fill();
+      // White wispy clouds around the spot edge
+      ctx.strokeStyle = 'rgba(240, 245, 255, 0.55)';
+      ctx.lineWidth = 1.5 * s;
+      ctx.beginPath();
+      ctx.ellipse(0, 0, dsR * dsPulse * 1.05, dsR * dsPulse * 1.05, 0, Math.PI * 0.10, Math.PI * 0.90);
+      ctx.stroke();
+      ctx.restore();
+      // Fast supersonic white methane cloud streaks
+      ctx.strokeStyle = 'rgba(240, 248, 255, 0.55)';
+      ctx.lineWidth = 1.8 * s;
+      for (let i = 0; i < 14; i++) {
+        const xOff = ((t * 3.5 + i * 120 * s) % (w + 220 * s)) - 110 * s;
+        const y = h * (0.08 + (i * 0.07) % 0.85);
         ctx.beginPath();
         ctx.moveTo(xOff, y);
-        ctx.lineTo(xOff + 90, y);
+        ctx.lineTo(xOff + 100 * s, y - 1 * s);
         ctx.stroke();
       }
       ctx.restore();
     }
 
     if (name === 'THE SUN') {
-      // Inside the sun — radiant white core fading outward
+      // Inside the sun — radiant cream/peach core (Monument Valley sunset)
       ctx.save();
       const cx = w * 0.5, cy = h * 0.5;
       const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, Math.max(w, h) * 0.85);
-      grad.addColorStop(0, 'rgba(255, 255, 240, 0.85)');
-      grad.addColorStop(0.3, 'rgba(255, 220, 130, 0.55)');
-      grad.addColorStop(0.7, 'rgba(255, 140, 50, 0.35)');
-      grad.addColorStop(1, 'rgba(180, 70, 20, 0.4)');
+      grad.addColorStop(0, 'rgba(255, 248, 220, 0.85)');
+      grad.addColorStop(0.3, 'rgba(255, 220, 170, 0.55)');
+      grad.addColorStop(0.7, 'rgba(240, 150, 110, 0.40)');
+      grad.addColorStop(1, 'rgba(180, 100, 90, 0.40)');
       ctx.fillStyle = grad;
       ctx.fillRect(0, 0, w, h);
-      // Corona arms
+      // Corona arms (soft, painted)
       ctx.translate(cx, cy);
       for (let i = 0; i < 14; i++) {
         const angle = (i / 14) * Math.PI * 2 + t * 0.004;
         const len = Math.max(w, h) * (0.5 + Math.sin(t * 0.02 + i) * 0.08);
         const grad2 = ctx.createLinearGradient(0, 0, Math.cos(angle) * len, Math.sin(angle) * len);
-        grad2.addColorStop(0, 'rgba(255, 230, 140, 0.25)');
-        grad2.addColorStop(1, 'rgba(255, 100, 40, 0)');
+        grad2.addColorStop(0, 'rgba(255, 235, 180, 0.25)');
+        grad2.addColorStop(1, 'rgba(250, 140, 100, 0)');
         ctx.fillStyle = grad2;
         ctx.beginPath();
         ctx.moveTo(0, 0);
@@ -893,6 +1378,62 @@ export default function StellarDrift() {
         ctx.lineTo(Math.cos(angle + 0.05) * len, Math.sin(angle + 0.05) * len);
         ctx.closePath(); ctx.fill();
       }
+      // Solar flare arches — graceful curved plasma loops at the limb
+      const limbR = Math.min(w, h) * 0.36;
+      const flares = [
+        { ang: -0.4, scale: 1.0, phase: 0 },
+        { ang: Math.PI * 0.6, scale: 0.85, phase: 1.2 },
+        { ang: Math.PI * 1.15, scale: 1.15, phase: 2.7 },
+      ];
+      flares.forEach((f) => {
+        const breathe = 1 + Math.sin(t * 0.025 + f.phase) * 0.15;
+        const baseX = Math.cos(f.ang) * limbR;
+        const baseY = Math.sin(f.ang) * limbR;
+        const arcR = limbR * 0.22 * f.scale * breathe;
+        const normalA = f.ang;
+        const startX = baseX + Math.cos(normalA + Math.PI / 2) * arcR;
+        const startY = baseY + Math.sin(normalA + Math.PI / 2) * arcR;
+        const endX = baseX + Math.cos(normalA - Math.PI / 2) * arcR;
+        const endY = baseY + Math.sin(normalA - Math.PI / 2) * arcR;
+        const apexX = baseX + Math.cos(normalA) * arcR * 1.8;
+        const apexY = baseY + Math.sin(normalA) * arcR * 1.8;
+        ctx.save();
+        ctx.strokeStyle = 'rgba(255, 220, 160, 0.65)';
+        ctx.lineWidth = 3 * s;
+        ctx.shadowColor = 'rgba(255, 180, 120, 0.8)';
+        ctx.shadowBlur = 14 * s;
+        ctx.beginPath();
+        ctx.moveTo(startX, startY);
+        ctx.quadraticCurveTo(apexX, apexY, endX, endY);
+        ctx.stroke();
+        // Inner brighter core of the loop
+        ctx.strokeStyle = 'rgba(255, 248, 220, 0.85)';
+        ctx.lineWidth = 1.4 * s;
+        ctx.shadowBlur = 6 * s;
+        ctx.beginPath();
+        ctx.moveTo(startX, startY);
+        ctx.quadraticCurveTo(apexX, apexY, endX, endY);
+        ctx.stroke();
+        ctx.restore();
+      });
+      // Sunspots — small darker patches drifting slowly
+      const spots = [
+        { fx: -0.15, fy:  0.05, r: 0.05 },
+        { fx:  0.12, fy: -0.10, r: 0.035 },
+        { fx:  0.08, fy:  0.18, r: 0.025 },
+      ];
+      const driftS = t * 0.0008;
+      spots.forEach((sp, i) => {
+        const sx = Math.cos(sp.fx * Math.PI * 2 + driftS + i) * limbR * 0.45;
+        const sy = Math.sin(sp.fy * Math.PI * 2 + driftS + i * 0.7) * limbR * 0.35;
+        const sR = limbR * sp.r;
+        const sg = ctx.createRadialGradient(sx, sy, 0, sx, sy, sR);
+        sg.addColorStop(0, 'rgba(140, 70, 60, 0.85)');
+        sg.addColorStop(0.6, 'rgba(180, 100, 80, 0.45)');
+        sg.addColorStop(1, 'rgba(200, 120, 90, 0)');
+        ctx.fillStyle = sg;
+        ctx.beginPath(); ctx.arc(sx, sy, sR, 0, Math.PI * 2); ctx.fill();
+      });
       ctx.restore();
     }
 
@@ -907,31 +1448,33 @@ export default function StellarDrift() {
         ctx.save();
         ctx.rotate(arm * Math.PI);
         for (let i = 0; i < 35; i++) {
-          const r = i * 4;
+          const r = i * 4 * s;
           const a = i * 0.32;
           const x = Math.cos(a) * r;
           const y = Math.sin(a) * r;
-          const grad = ctx.createRadialGradient(x, y, 0, x, y, 14);
+          const grad = ctx.createRadialGradient(x, y, 0, x, y, 14 * s);
           grad.addColorStop(0, `rgba(180, 200, 255, ${0.30 - i * 0.006})`);
           grad.addColorStop(1, 'rgba(120, 80, 200, 0)');
           ctx.fillStyle = grad;
-          ctx.beginPath(); ctx.arc(x, y, 14, 0, Math.PI * 2); ctx.fill();
+          ctx.beginPath(); ctx.arc(x, y, 14 * s, 0, Math.PI * 2); ctx.fill();
         }
         ctx.restore();
       }
       // Galaxy core
-      const coreGrad = ctx.createRadialGradient(0, 0, 0, 0, 0, 30);
+      const coreR = 30 * s;
+      const coreGrad = ctx.createRadialGradient(0, 0, 0, 0, 0, coreR);
       coreGrad.addColorStop(0, 'rgba(255, 240, 220, 0.95)');
       coreGrad.addColorStop(1, 'rgba(200, 160, 240, 0)');
       ctx.fillStyle = coreGrad;
-      ctx.beginPath(); ctx.arc(0, 0, 30, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(0, 0, coreR, 0, Math.PI * 2); ctx.fill();
       ctx.restore();
-      // Nebula clouds elsewhere
+      // Nebula clouds elsewhere (more painted, more diverse colors)
       ctx.save();
       const nebs = [
-        { x: w * 0.15, y: h * 0.6, r: 110, c: 'rgba(160, 80, 200, 0.18)' },
-        { x: w * 0.35, y: h * 0.85, r: 90,  c: 'rgba(220, 100, 200, 0.15)' },
-        { x: w * 0.85, y: h * 0.75, r: 130, c: 'rgba(100, 80, 220, 0.16)' },
+        { x: w * 0.15, y: h * 0.55, r: 130 * s, c: 'rgba(180, 120, 220, 0.22)' },
+        { x: w * 0.32, y: h * 0.82, r: 100 * s, c: 'rgba(232, 140, 200, 0.18)' },
+        { x: w * 0.85, y: h * 0.70, r: 150 * s, c: 'rgba(140, 130, 240, 0.20)' },
+        { x: w * 0.55, y: h * 0.92, r: 110 * s, c: 'rgba(220, 180, 240, 0.14)' },
       ];
       nebs.forEach((n) => {
         const grad = ctx.createRadialGradient(n.x, n.y, 0, n.x, n.y, n.r);
@@ -940,6 +1483,31 @@ export default function StellarDrift() {
         ctx.fillStyle = grad;
         ctx.beginPath(); ctx.arc(n.x, n.y, n.r, 0, Math.PI * 2); ctx.fill();
       });
+      ctx.restore();
+      // Pulsar — a single brilliant pulsating star with diffraction rays
+      ctx.save();
+      const pulsX = w * 0.28, pulsY = h * 0.62;
+      const beat = 0.5 + 0.5 * Math.abs(Math.sin(t * 0.08));
+      const pulsCore = (3 + beat * 2) * s;
+      const pulsGlow = (28 + beat * 16) * s;
+      // Outer glow
+      const pGlow = ctx.createRadialGradient(pulsX, pulsY, 0, pulsX, pulsY, pulsGlow);
+      pGlow.addColorStop(0, `rgba(220, 230, 255, ${0.55 * beat + 0.30})`);
+      pGlow.addColorStop(0.4, 'rgba(180, 200, 255, 0.22)');
+      pGlow.addColorStop(1, 'rgba(140, 160, 240, 0)');
+      ctx.fillStyle = pGlow;
+      ctx.beginPath(); ctx.arc(pulsX, pulsY, pulsGlow, 0, Math.PI * 2); ctx.fill();
+      // Diffraction spikes (4-way cross)
+      ctx.strokeStyle = `rgba(240, 240, 255, ${0.50 + 0.40 * beat})`;
+      ctx.lineWidth = 1.2 * s;
+      const spike = pulsGlow * 1.3;
+      ctx.beginPath();
+      ctx.moveTo(pulsX - spike, pulsY); ctx.lineTo(pulsX + spike, pulsY);
+      ctx.moveTo(pulsX, pulsY - spike); ctx.lineTo(pulsX, pulsY + spike);
+      ctx.stroke();
+      // Hot white core
+      ctx.fillStyle = '#ffffff';
+      ctx.beginPath(); ctx.arc(pulsX, pulsY, pulsCore, 0, Math.PI * 2); ctx.fill();
       ctx.restore();
     }
   }, []);
@@ -982,7 +1550,7 @@ export default function StellarDrift() {
     ctx.restore();
   }, []);
 
-  const drawColumn = useCallback((ctx, x, y, width, height, planet, depthOffset = 8) => {
+  const drawColumn = useCallback((ctx, x, y, width, height, planet, depthOffset, s) => {
     if (height <= 0) return;
     // Right side face (darker, isometric depth)
     ctx.save();
@@ -1006,39 +1574,42 @@ export default function StellarDrift() {
     ctx.fillRect(x, y, width, height);
     ctx.restore();
 
-    // Subtle panel lines every 50px
+    // Subtle panel lines every 50px (scaled)
     ctx.save();
     ctx.strokeStyle = 'rgba(0, 0, 0, 0.12)';
     ctx.lineWidth = 1;
-    const startLine = Math.ceil(y / 50) * 50;
-    for (let py = startLine; py < y + height; py += 50) {
+    const lineSpacing = 50 * s;
+    const startLine = Math.ceil(y / lineSpacing) * lineSpacing;
+    for (let py = startLine; py < y + height; py += lineSpacing) {
       ctx.beginPath();
-      ctx.moveTo(x + 4, py);
-      ctx.lineTo(x + width - 4, py);
+      ctx.moveTo(x + 4 * s, py);
+      ctx.lineTo(x + width - 4 * s, py);
       ctx.stroke();
     }
     ctx.restore();
   }, []);
 
-  const drawColumnPair = useCallback((ctx, col, planet, h) => {
+  const drawColumnPair = useCallback((ctx, col, planet, h, columnWidth, s) => {
     const { x, gapY, gap } = col;
-    const w = PHYSICS.columnWidth;
+    const w = columnWidth;
     const topH = gapY - gap / 2;
     const botY = gapY + gap / 2;
     const botH = h - botY;
+    const depth = 8 * s;
+    const edgeT = 4 * s;
 
     // Top column
-    drawColumn(ctx, x, 0, w, topH, planet, 8);
+    drawColumn(ctx, x, 0, w, topH, planet, depth, s);
     // Bottom column
-    drawColumn(ctx, x, botY, w, botH, planet, 8);
+    drawColumn(ctx, x, botY, w, botH, planet, depth, s);
 
     // Bright top edge highlight (bottom of top column - the edge facing the gap)
     ctx.save();
-    const eg1 = ctx.createLinearGradient(0, topH - 4, 0, topH);
+    const eg1 = ctx.createLinearGradient(0, topH - edgeT, 0, topH);
     eg1.addColorStop(0, planet.columnFront);
     eg1.addColorStop(1, planet.columnEdge);
     ctx.fillStyle = eg1;
-    ctx.fillRect(x, topH - 4, w, 4);
+    ctx.fillRect(x, topH - edgeT, w, edgeT);
     // Thin highlight line
     ctx.fillStyle = planet.columnEdge;
     ctx.fillRect(x, topH - 1, w, 1);
@@ -1047,29 +1618,29 @@ export default function StellarDrift() {
     ctx.globalAlpha = 0.7;
     ctx.beginPath();
     ctx.moveTo(x + w, topH);
-    ctx.lineTo(x + w + 8, topH - 8);
-    ctx.lineTo(x + w + 8, topH - 12);
-    ctx.lineTo(x + w, topH - 4);
+    ctx.lineTo(x + w + 8 * s, topH - 8 * s);
+    ctx.lineTo(x + w + 8 * s, topH - 12 * s);
+    ctx.lineTo(x + w, topH - edgeT);
     ctx.closePath();
     ctx.fill();
     ctx.restore();
 
     // Bright bottom edge (top of bottom column - facing the gap)
     ctx.save();
-    const eg2 = ctx.createLinearGradient(0, botY, 0, botY + 4);
+    const eg2 = ctx.createLinearGradient(0, botY, 0, botY + edgeT);
     eg2.addColorStop(0, planet.columnEdge);
     eg2.addColorStop(1, planet.columnFront);
     ctx.fillStyle = eg2;
-    ctx.fillRect(x, botY, w, 4);
+    ctx.fillRect(x, botY, w, edgeT);
     ctx.fillStyle = planet.columnEdge;
     ctx.fillRect(x, botY, w, 1);
     ctx.fillStyle = planet.columnEdge;
     ctx.globalAlpha = 0.7;
     ctx.beginPath();
     ctx.moveTo(x + w, botY);
-    ctx.lineTo(x + w + 8, botY - 8);
-    ctx.lineTo(x + w + 8, botY - 4);
-    ctx.lineTo(x + w, botY + 4);
+    ctx.lineTo(x + w + 8 * s, botY - 8 * s);
+    ctx.lineTo(x + w + 8 * s, botY - edgeT);
+    ctx.lineTo(x + w, botY + edgeT);
     ctx.closePath();
     ctx.fill();
     ctx.restore();
@@ -1085,13 +1656,13 @@ export default function StellarDrift() {
     ctx.restore();
   }, [drawColumn]);
 
-  const drawShip = useCallback((ctx, ship, planet, t, scale = 1) => {
+  const drawShip = useCallback((ctx, ship, planet, t, s, design = 'voyager', colorId = 'white') => {
+    const color = SHIP_COLORS.find((c) => c.id === colorId) || SHIP_COLORS[0];
     ctx.save();
     ctx.translate(ship.x, ship.y);
     ctx.rotate(ship.tilt);
-    ctx.scale(scale, scale);
 
-    // Trail
+    // Trail — uses planet accent, same across all ship designs
     ctx.save();
     for (let i = 0; i < ship.trail.length; i++) {
       const p = ship.trail[i];
@@ -1100,122 +1671,241 @@ export default function StellarDrift() {
       ctx.beginPath();
       const dx = p.x - ship.x;
       const dy = p.y - ship.y;
-      // Translate back to world for trail, but we are in ship space — use offset
       const cos = Math.cos(-ship.tilt), sin = Math.sin(-ship.tilt);
       const tx = dx * cos - dy * sin;
       const ty = dx * sin + dy * cos;
-      ctx.arc(tx, ty, 4 - i * 0.2, 0, Math.PI * 2);
+      ctx.arc(tx, ty, (4 - i * 0.2) * s, 0, Math.PI * 2);
       ctx.fill();
     }
     ctx.restore();
 
-    // Engine flame (two cones)
-    const flameLen = 14 + Math.sin(t * 0.7) * 4 + (ship.vy < 0 ? 8 : 0);
-    for (let s = -1; s <= 1; s += 2) {
-      const fy = s * 6;
-      // Outer flame
-      const outerGrad = ctx.createLinearGradient(-12, fy, -12 - flameLen, fy);
+    const drawFlame = (baseX, halfH, len, splitTwin) => {
+      const passes = splitTwin ? [-1, 1] : [0];
+      passes.forEach((k) => {
+        const fy = k * halfH;
+        const outerGrad = ctx.createLinearGradient(baseX, fy, baseX - len, fy);
+        outerGrad.addColorStop(0, planet.accent);
+        outerGrad.addColorStop(0.5, `${planet.accent}80`);
+        outerGrad.addColorStop(1, `${planet.accent}00`);
+        ctx.fillStyle = outerGrad;
+        ctx.beginPath();
+        ctx.moveTo(baseX, fy - 3 * s);
+        ctx.lineTo(baseX - len, fy);
+        ctx.lineTo(baseX, fy + 3 * s);
+        ctx.closePath();
+        ctx.fill();
+        const innerLen = len * 0.55;
+        const innerGrad = ctx.createLinearGradient(baseX, fy, baseX - innerLen, fy);
+        innerGrad.addColorStop(0, '#ffffff');
+        innerGrad.addColorStop(1, `${planet.accent}00`);
+        ctx.fillStyle = innerGrad;
+        ctx.beginPath();
+        ctx.moveTo(baseX, fy - 1.5 * s);
+        ctx.lineTo(baseX - innerLen, fy);
+        ctx.lineTo(baseX, fy + 1.5 * s);
+        ctx.closePath();
+        ctx.fill();
+      });
+    };
+
+    const pulse = 0.5 + 0.5 * Math.sin(t * 0.3);
+    const drawNavLight = (lx, ly, baseR) => {
+      ctx.save();
+      ctx.fillStyle = `rgba(255, 255, 255, ${0.8 + pulse * 0.2})`;
+      ctx.shadowColor = planet.accent;
+      ctx.shadowBlur = (8 + pulse * 6) * s;
+      ctx.beginPath();
+      ctx.arc(lx, ly, (baseR + pulse * 0.6) * s, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    };
+
+    if (design === 'wedge') {
+      // Sharp triangular fighter — single long flame, no separate wings.
+      const flameLen = (16 + Math.sin(t * 0.7) * 4 + (ship.vy < 0 ? 8 : 0)) * s;
+      drawFlame(-10 * s, 4 * s, flameLen, true);
+      // Body — long sharp triangle
+      const bGrad = ctx.createLinearGradient(0, -10 * s, 0, 10 * s);
+      bGrad.addColorStop(0, color.main);
+      bGrad.addColorStop(0.55, color.mid);
+      bGrad.addColorStop(1, color.shadow);
+      ctx.fillStyle = bGrad;
+      ctx.beginPath();
+      ctx.moveTo(20 * s, 0);
+      ctx.lineTo(-10 * s, -10 * s);
+      ctx.lineTo(-10 * s, 10 * s);
+      ctx.closePath();
+      ctx.fill();
+      // Bottom shadow strip for depth
+      ctx.fillStyle = 'rgba(20, 20, 30, 0.30)';
+      ctx.beginPath();
+      ctx.moveTo(20 * s, 0);
+      ctx.lineTo(-10 * s, 10 * s);
+      ctx.lineTo(-10 * s, 4 * s);
+      ctx.closePath();
+      ctx.fill();
+      // Cockpit slit near the nose
+      ctx.fillStyle = `${planet.accent}cc`;
+      ctx.beginPath();
+      ctx.ellipse(8 * s, -1 * s, 5 * s, 1.6 * s, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = 'rgba(255,255,255,0.8)';
+      ctx.beginPath();
+      ctx.ellipse(7 * s, -2 * s, 1.5 * s, 0.5 * s, -0.2, 0, Math.PI * 2);
+      ctx.fill();
+      drawNavLight(19 * s, 0, 1.6);
+    } else if (design === 'orb') {
+      // Spherical capsule with halo ring.
+      const flameLen = (10 + Math.sin(t * 0.7) * 3 + (ship.vy < 0 ? 6 : 0)) * s;
+      drawFlame(-10 * s, 0, flameLen, false);
+      // Halo (drawn behind body)
+      ctx.save();
+      ctx.rotate(t * 0.01);
+      ctx.strokeStyle = `${planet.accent}88`;
+      ctx.lineWidth = 2 * s;
+      ctx.beginPath();
+      ctx.ellipse(0, 0, 14 * s, 5 * s, 0.4, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+      // Sphere body
+      const orbGrad = ctx.createRadialGradient(-2 * s, -4 * s, 0, 0, 0, 11 * s);
+      orbGrad.addColorStop(0, color.main);
+      orbGrad.addColorStop(0.6, color.mid);
+      orbGrad.addColorStop(1, color.shadow);
+      ctx.fillStyle = orbGrad;
+      ctx.beginPath();
+      ctx.arc(0, 0, 11 * s, 0, Math.PI * 2);
+      ctx.fill();
+      // Equator band
+      ctx.strokeStyle = 'rgba(0,0,0,0.2)';
+      ctx.lineWidth = 1 * s;
+      ctx.beginPath();
+      ctx.ellipse(0, 0, 11 * s, 2 * s, 0, 0, Math.PI * 2);
+      ctx.stroke();
+      // Front porthole
+      ctx.fillStyle = `${planet.accent}cc`;
+      ctx.beginPath();
+      ctx.arc(4 * s, -1 * s, 4 * s, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = 'rgba(255,255,255,0.85)';
+      ctx.beginPath();
+      ctx.ellipse(3 * s, -2.5 * s, 1.3 * s, 0.7 * s, -0.3, 0, Math.PI * 2);
+      ctx.fill();
+      drawNavLight(11 * s, 0, 1.5);
+    } else if (design === 'comet') {
+      // Tail-heavy compact body with a long flame plume.
+      const flameLen = (28 + Math.sin(t * 0.7) * 6 + (ship.vy < 0 ? 10 : 0)) * s;
+      // Wide outer plume
+      const outerGrad = ctx.createLinearGradient(-6 * s, 0, -6 * s - flameLen, 0);
       outerGrad.addColorStop(0, planet.accent);
-      outerGrad.addColorStop(0.5, `${planet.accent}80`);
+      outerGrad.addColorStop(0.5, `${planet.accent}66`);
       outerGrad.addColorStop(1, `${planet.accent}00`);
       ctx.fillStyle = outerGrad;
       ctx.beginPath();
-      ctx.moveTo(-12, fy - 3);
-      ctx.lineTo(-12 - flameLen, fy);
-      ctx.lineTo(-12, fy + 3);
+      ctx.moveTo(-6 * s, -6 * s);
+      ctx.quadraticCurveTo(-6 * s - flameLen * 0.6, -2 * s, -6 * s - flameLen, 0);
+      ctx.quadraticCurveTo(-6 * s - flameLen * 0.6, 2 * s, -6 * s, 6 * s);
       ctx.closePath();
       ctx.fill();
-      // Inner white-hot core
-      const innerLen = flameLen * 0.55;
-      const innerGrad = ctx.createLinearGradient(-12, fy, -12 - innerLen, fy);
+      // Inner bright core of the plume
+      const innerLen = flameLen * 0.7;
+      const innerGrad = ctx.createLinearGradient(-6 * s, 0, -6 * s - innerLen, 0);
       innerGrad.addColorStop(0, '#ffffff');
       innerGrad.addColorStop(1, `${planet.accent}00`);
       ctx.fillStyle = innerGrad;
       ctx.beginPath();
-      ctx.moveTo(-12, fy - 1.5);
-      ctx.lineTo(-12 - innerLen, fy);
-      ctx.lineTo(-12, fy + 1.5);
+      ctx.moveTo(-6 * s, -2.5 * s);
+      ctx.quadraticCurveTo(-6 * s - innerLen * 0.6, -1 * s, -6 * s - innerLen, 0);
+      ctx.quadraticCurveTo(-6 * s - innerLen * 0.6, 1 * s, -6 * s, 2.5 * s);
       ctx.closePath();
       ctx.fill();
+      // Body — rounded teardrop, smaller than voyager
+      const cGrad = ctx.createLinearGradient(0, -7 * s, 0, 7 * s);
+      cGrad.addColorStop(0, color.main);
+      cGrad.addColorStop(0.55, color.mid);
+      cGrad.addColorStop(1, color.shadow);
+      ctx.fillStyle = cGrad;
+      ctx.beginPath();
+      ctx.moveTo(14 * s, 0);
+      ctx.quadraticCurveTo(8 * s, -7 * s, -2 * s, -6 * s);
+      ctx.quadraticCurveTo(-7 * s, -2 * s, -7 * s, 0);
+      ctx.quadraticCurveTo(-7 * s, 2 * s, -2 * s, 6 * s);
+      ctx.quadraticCurveTo(8 * s, 7 * s, 14 * s, 0);
+      ctx.closePath();
+      ctx.fill();
+      // Cockpit
+      ctx.fillStyle = `${planet.accent}cc`;
+      ctx.beginPath();
+      ctx.ellipse(4 * s, -2 * s, 4.5 * s, 2.5 * s, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = 'rgba(255,255,255,0.85)';
+      ctx.beginPath();
+      ctx.ellipse(3 * s, -3 * s, 1.4 * s, 0.6 * s, -0.3, 0, Math.PI * 2);
+      ctx.fill();
+      drawNavLight(13 * s, 0, 1.6);
+    } else {
+      // 'voyager' (default) — original delta-wing classic
+      const flameLen = (14 + Math.sin(t * 0.7) * 4 + (ship.vy < 0 ? 8 : 0)) * s;
+      drawFlame(-12 * s, 6 * s, flameLen, true);
+      // Wings — swept delta
+      ctx.fillStyle = color.shadow;
+      ctx.beginPath();
+      ctx.moveTo(-2 * s, -2 * s);
+      ctx.lineTo(-14 * s, -13 * s);
+      ctx.lineTo(-10 * s, -2 * s);
+      ctx.closePath();
+      ctx.fill();
+      ctx.beginPath();
+      ctx.moveTo(-2 * s, 2 * s);
+      ctx.lineTo(-14 * s, 13 * s);
+      ctx.lineTo(-10 * s, 2 * s);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = `${color.main}80`;
+      ctx.beginPath();
+      ctx.moveTo(-2 * s, -2 * s);
+      ctx.lineTo(-13 * s, -12 * s);
+      ctx.lineTo(-11 * s, -8 * s);
+      ctx.lineTo(-3 * s, -1 * s);
+      ctx.closePath();
+      ctx.fill();
+      // Fuselage — elongated teardrop
+      const fGrad = ctx.createLinearGradient(0, -8 * s, 0, 8 * s);
+      fGrad.addColorStop(0, color.main);
+      fGrad.addColorStop(0.5, color.mid);
+      fGrad.addColorStop(1, color.shadow);
+      ctx.fillStyle = fGrad;
+      ctx.beginPath();
+      ctx.moveTo(18 * s, 0);
+      ctx.quadraticCurveTo(10 * s, -7 * s, -4 * s, -5 * s);
+      ctx.quadraticCurveTo(-13 * s, -3 * s, -14 * s, 0);
+      ctx.quadraticCurveTo(-13 * s, 3 * s, -4 * s, 5 * s);
+      ctx.quadraticCurveTo(10 * s, 7 * s, 18 * s, 0);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = 'rgba(40, 50, 70, 0.30)';
+      ctx.beginPath();
+      ctx.moveTo(18 * s, 0);
+      ctx.quadraticCurveTo(10 * s, 6 * s, -4 * s, 5 * s);
+      ctx.quadraticCurveTo(-13 * s, 3 * s, -14 * s, 0);
+      ctx.lineTo(18 * s, 0);
+      ctx.closePath();
+      ctx.fill();
+      // Cockpit dome
+      const cdGrad = ctx.createRadialGradient(2 * s, -3 * s, 0, 2 * s, -2 * s, 6 * s);
+      cdGrad.addColorStop(0, planet.accent);
+      cdGrad.addColorStop(0.7, '#2a4868');
+      cdGrad.addColorStop(1, '#152030');
+      ctx.fillStyle = cdGrad;
+      ctx.beginPath();
+      ctx.ellipse(3 * s, -3 * s, 6 * s, 3.5 * s, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
+      ctx.beginPath();
+      ctx.ellipse(1.5 * s, -4.5 * s, 1.6 * s, 0.7 * s, -0.3, 0, Math.PI * 2);
+      ctx.fill();
+      drawNavLight(17 * s, 0, 1.6);
     }
-
-    // Wings — swept delta
-    ctx.fillStyle = '#3a4f6a';
-    ctx.beginPath();
-    ctx.moveTo(-2, -2);
-    ctx.lineTo(-14, -13);
-    ctx.lineTo(-10, -2);
-    ctx.closePath();
-    ctx.fill();
-    ctx.beginPath();
-    ctx.moveTo(-2, 2);
-    ctx.lineTo(-14, 13);
-    ctx.lineTo(-10, 2);
-    ctx.closePath();
-    ctx.fill();
-    // Wing highlights
-    ctx.fillStyle = 'rgba(220, 230, 250, 0.5)';
-    ctx.beginPath();
-    ctx.moveTo(-2, -2);
-    ctx.lineTo(-13, -12);
-    ctx.lineTo(-11, -8);
-    ctx.lineTo(-3, -1);
-    ctx.closePath();
-    ctx.fill();
-
-    // Fuselage — elongated teardrop
-    ctx.save();
-    const fGrad = ctx.createLinearGradient(0, -8, 0, 8);
-    fGrad.addColorStop(0, '#e8eef8');
-    fGrad.addColorStop(0.5, '#b8c4d8');
-    fGrad.addColorStop(1, '#6a7890');
-    ctx.fillStyle = fGrad;
-    ctx.beginPath();
-    ctx.moveTo(18, 0);
-    ctx.quadraticCurveTo(10, -7, -4, -5);
-    ctx.quadraticCurveTo(-13, -3, -14, 0);
-    ctx.quadraticCurveTo(-13, 3, -4, 5);
-    ctx.quadraticCurveTo(10, 7, 18, 0);
-    ctx.closePath();
-    ctx.fill();
-    // Body bottom shadow
-    ctx.fillStyle = 'rgba(40, 50, 70, 0.35)';
-    ctx.beginPath();
-    ctx.moveTo(18, 0);
-    ctx.quadraticCurveTo(10, 6, -4, 5);
-    ctx.quadraticCurveTo(-13, 3, -14, 0);
-    ctx.lineTo(18, 0);
-    ctx.closePath();
-    ctx.fill();
-    ctx.restore();
-
-    // Cockpit dome
-    ctx.save();
-    const cGrad = ctx.createRadialGradient(2, -3, 0, 2, -2, 6);
-    cGrad.addColorStop(0, `${planet.accent}`);
-    cGrad.addColorStop(0.7, '#2a4868');
-    cGrad.addColorStop(1, '#152030');
-    ctx.fillStyle = cGrad;
-    ctx.beginPath();
-    ctx.ellipse(3, -3, 6, 3.5, 0, 0, Math.PI * 2);
-    ctx.fill();
-    // Specular highlight
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
-    ctx.beginPath();
-    ctx.ellipse(1.5, -4.5, 1.6, 0.7, -0.3, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.restore();
-
-    // Pulsing nav light on nose tip
-    const pulse = 0.5 + 0.5 * Math.sin(t * 0.3);
-    ctx.save();
-    ctx.fillStyle = `rgba(255, 255, 255, ${0.8 + pulse * 0.2})`;
-    ctx.shadowColor = planet.accent;
-    ctx.shadowBlur = 8 + pulse * 6;
-    ctx.beginPath();
-    ctx.arc(17, 0, 1.6 + pulse * 0.6, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.restore();
 
     ctx.restore();
   }, []);
@@ -1232,12 +1922,57 @@ export default function StellarDrift() {
     ctx.restore();
   }, []);
 
+  const drawFragments = useCallback((ctx, fragments, planet, s) => {
+    fragments.forEach((f) => {
+      if (f.collected) return;
+      const accent = planet.accent;
+      ctx.save();
+      ctx.translate(f.x, f.y + Math.sin(f.bounce) * 3 * s);
+      // Soft pulsing halo
+      const pulse = 0.85 + Math.sin(f.bounce * 1.3) * 0.15;
+      const haloR = 20 * s * pulse;
+      const halo = ctx.createRadialGradient(0, 0, 0, 0, 0, haloR);
+      halo.addColorStop(0, `${accent}80`);
+      halo.addColorStop(0.5, `${accent}40`);
+      halo.addColorStop(1, `${accent}00`);
+      ctx.fillStyle = halo;
+      ctx.beginPath(); ctx.arc(0, 0, haloR, 0, Math.PI * 2); ctx.fill();
+      // Crystal — rotated diamond with facets
+      ctx.rotate(f.rot);
+      const sz = 9 * s;
+      // Back facet (darker accent)
+      ctx.fillStyle = accent;
+      ctx.beginPath();
+      ctx.moveTo(0, -sz);
+      ctx.lineTo(sz * 0.55, 0);
+      ctx.lineTo(0, sz);
+      ctx.lineTo(-sz * 0.55, 0);
+      ctx.closePath();
+      ctx.fill();
+      // Lit front facet (bright white)
+      ctx.fillStyle = '#ffffff';
+      ctx.beginPath();
+      ctx.moveTo(0, -sz);
+      ctx.lineTo(sz * 0.28, 0);
+      ctx.lineTo(0, sz * 0.4);
+      ctx.lineTo(-sz * 0.28, 0);
+      ctx.closePath();
+      ctx.fill();
+      // Tiny sparkle in the corner
+      ctx.fillStyle = 'rgba(255,255,255,0.85)';
+      ctx.beginPath();
+      ctx.arc(-sz * 0.10, -sz * 0.45, sz * 0.10, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    });
+  }, []);
+
   const drawRings = useCallback((ctx, rings) => {
     ctx.save();
     rings.forEach((r) => {
       const a = Math.max(0, r.life / r.maxLife);
       ctx.strokeStyle = `${r.color}${Math.floor(a * 200).toString(16).padStart(2, '0')}`;
-      ctx.lineWidth = 2 * a;
+      ctx.lineWidth = 2 * a * (r.scale || 1);
       ctx.beginPath();
       ctx.arc(r.x, r.y, r.radius, 0, Math.PI * 2);
       ctx.stroke();
@@ -1262,33 +1997,36 @@ export default function StellarDrift() {
 
   const drawHUD = useCallback((ctx, gs, planet, speedMul) => {
     const { w, score, best, planetIdx, obstaclesInPlanet, combo, comboTimer } = gs;
+    const s = gs.scale;
 
     // Score pill (centered, top)
     ctx.save();
     const scoreText = String(score);
-    ctx.font = '600 44px -apple-system, BlinkMacSystemFont, "Helvetica Neue", Helvetica, Arial, sans-serif';
-    const sw = Math.max(110, ctx.measureText(scoreText).width + 50);
-    const sx = (w - sw) / 2, sy = 14;
+    ctx.font = `600 ${44 * s}px -apple-system, BlinkMacSystemFont, "Helvetica Neue", Helvetica, Arial, sans-serif`;
+    const sw = Math.max(110 * s, ctx.measureText(scoreText).width + 50 * s);
+    const sx = (w - sw) / 2, sy = 14 * s;
+    const sh = 60 * s;
+    const sr = 22 * s;
     ctx.fillStyle = 'rgba(10, 15, 25, 0.55)';
-    roundRect(ctx, sx, sy, sw, 60, 22);
+    roundRect(ctx, sx, sy, sw, sh, sr);
     ctx.fill();
     // Border tint with accent
     ctx.strokeStyle = `${planet.accent}40`;
     ctx.lineWidth = 1;
-    roundRect(ctx, sx, sy, sw, 60, 22);
+    roundRect(ctx, sx, sy, sw, sh, sr);
     ctx.stroke();
     // Score number
     ctx.fillStyle = '#ffffff';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.shadowColor = 'rgba(0,0,0,0.6)';
-    ctx.shadowBlur = 4;
-    ctx.fillText(scoreText, w / 2, sy + 32);
+    ctx.shadowBlur = 4 * s;
+    ctx.fillText(scoreText, w / 2, sy + 32 * s);
     // BEST
-    ctx.font = '500 11px -apple-system, BlinkMacSystemFont, "Helvetica Neue", Helvetica, Arial, sans-serif';
-    ctx.shadowBlur = 2;
+    ctx.font = `500 ${11 * s}px -apple-system, BlinkMacSystemFont, "Helvetica Neue", Helvetica, Arial, sans-serif`;
+    ctx.shadowBlur = 2 * s;
     ctx.fillStyle = 'rgba(255,255,255,0.7)';
-    ctx.fillText(`BEST ${best}`, w / 2, sy + 53);
+    ctx.fillText(`BEST ${best}`, w / 2, sy + 53 * s);
     ctx.restore();
 
     // Score flash
@@ -1296,8 +2034,8 @@ export default function StellarDrift() {
       ctx.save();
       ctx.globalAlpha = gs.scoreFlash / 10;
       ctx.strokeStyle = planet.accent;
-      ctx.lineWidth = 2;
-      roundRect(ctx, sx - 2, sy - 2, sw + 4, 64, 24);
+      ctx.lineWidth = 2 * s;
+      roundRect(ctx, sx - 2 * s, sy - 2 * s, sw + 4 * s, 64 * s, 24 * s);
       ctx.stroke();
       ctx.restore();
       gs.scoreFlash--;
@@ -1306,17 +2044,17 @@ export default function StellarDrift() {
     // Combo bar
     if (combo > 1 && comboTimer > 0) {
       ctx.save();
-      const cx = (w - sw) / 2 + 10, cy = sy + 64;
-      const cw = sw - 20;
+      const cx = (w - sw) / 2 + 10 * s, cy = sy + 64 * s;
+      const cw = sw - 20 * s;
       const fill = Math.min(1, comboTimer / 180);
       ctx.fillStyle = 'rgba(255,255,255,0.10)';
-      roundRect(ctx, cx, cy, cw, 4, 2);
+      roundRect(ctx, cx, cy, cw, 4 * s, 2 * s);
       ctx.fill();
       const cg = ctx.createLinearGradient(cx, 0, cx + cw, 0);
       cg.addColorStop(0, planet.accent);
       cg.addColorStop(1, '#ffffff');
       ctx.fillStyle = cg;
-      roundRect(ctx, cx, cy, cw * fill, 4, 2);
+      roundRect(ctx, cx, cy, cw * fill, 4 * s, 2 * s);
       ctx.fill();
       ctx.restore();
     }
@@ -1324,53 +2062,53 @@ export default function StellarDrift() {
     // Level badge top-left
     ctx.save();
     const levelLabel = `${planetIdx + 1} · ${planet.name}`;
-    ctx.font = '600 12px -apple-system, BlinkMacSystemFont, "Helvetica Neue", Helvetica, Arial, sans-serif';
-    const lw = Math.max(120, ctx.measureText(levelLabel).width + 50);
-    const lx = 12, ly = 14, lh = 38;
+    ctx.font = `600 ${12 * s}px -apple-system, BlinkMacSystemFont, "Helvetica Neue", Helvetica, Arial, sans-serif`;
+    const lw = Math.max(120 * s, ctx.measureText(levelLabel).width + 50 * s);
+    const lx = 12 * s, ly = 14 * s, lh = 38 * s;
     ctx.fillStyle = 'rgba(10, 15, 25, 0.55)';
-    roundRect(ctx, lx, ly, lw, lh, 18);
+    roundRect(ctx, lx, ly, lw, lh, 18 * s);
     ctx.fill();
     // Progress arc
-    const ax = lx + 18, ay = ly + lh / 2, ar = 11;
+    const ax = lx + 18 * s, ay = ly + lh / 2, ar = 11 * s;
     ctx.strokeStyle = 'rgba(255,255,255,0.20)';
-    ctx.lineWidth = 2.5;
+    ctx.lineWidth = 2.5 * s;
     ctx.beginPath();
     ctx.arc(ax, ay, ar, -Math.PI / 2, Math.PI * 1.5);
     ctx.stroke();
     const prog = Math.min(1, obstaclesInPlanet / 15);
     ctx.strokeStyle = planet.accent;
-    ctx.lineWidth = 2.5;
+    ctx.lineWidth = 2.5 * s;
     ctx.beginPath();
     ctx.arc(ax, ay, ar, -Math.PI / 2, -Math.PI / 2 + prog * Math.PI * 2);
     ctx.stroke();
     // Inner dot
     ctx.fillStyle = planet.accent;
     ctx.beginPath();
-    ctx.arc(ax, ay, 3.5, 0, Math.PI * 2);
+    ctx.arc(ax, ay, 3.5 * s, 0, Math.PI * 2);
     ctx.fill();
     // Label
     ctx.fillStyle = '#ffffff';
     ctx.textAlign = 'left';
     ctx.textBaseline = 'middle';
     ctx.shadowColor = 'rgba(0,0,0,0.5)';
-    ctx.shadowBlur = 3;
-    ctx.fillText(levelLabel, lx + 36, ly + lh / 2);
+    ctx.shadowBlur = 3 * s;
+    ctx.fillText(levelLabel, lx + 36 * s, ly + lh / 2);
     ctx.restore();
 
     // Speed top-right
     ctx.save();
     const spdText = `${speedMul.toFixed(1)}×`;
-    ctx.font = '600 13px -apple-system, BlinkMacSystemFont, "Helvetica Neue", Helvetica, Arial, sans-serif';
-    const tw = Math.max(60, ctx.measureText(spdText).width + 26);
-    const tx = w - tw - 12, ty = 14, th = 38;
+    ctx.font = `600 ${13 * s}px -apple-system, BlinkMacSystemFont, "Helvetica Neue", Helvetica, Arial, sans-serif`;
+    const tw = Math.max(60 * s, ctx.measureText(spdText).width + 26 * s);
+    const tx = w - tw - 12 * s, ty = 14 * s, th = 38 * s;
     ctx.fillStyle = 'rgba(10, 15, 25, 0.55)';
-    roundRect(ctx, tx, ty, tw, th, 18);
+    roundRect(ctx, tx, ty, tw, th, 18 * s);
     ctx.fill();
     ctx.fillStyle = '#ffffff';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.shadowColor = 'rgba(0,0,0,0.5)';
-    ctx.shadowBlur = 3;
+    ctx.shadowBlur = 3 * s;
     ctx.fillText(spdText, tx + tw / 2, ty + th / 2);
     ctx.restore();
   }, []);
@@ -1378,6 +2116,7 @@ export default function StellarDrift() {
   const drawTransitionCard = useCallback((ctx, gs, w, h) => {
     if (gs.transitionCard <= 0) return;
     const planet = PLANETS[gs.transitionCardPlanet];
+    const s = gs.scale;
     // Fade in then fade out — peak in middle of 120 frame window
     const total = 120;
     const t = total - gs.transitionCard; // 0..120
@@ -1388,108 +2127,87 @@ export default function StellarDrift() {
 
     ctx.save();
     ctx.globalAlpha = alpha;
-    const cw = Math.min(w - 60, 320), ch = 110;
+    const cw = Math.min(w - 60 * s, 320 * s), ch = 110 * s;
     const cx = (w - cw) / 2, cy = (h - ch) / 2;
     // Glow border
     ctx.shadowColor = planet.accent;
-    ctx.shadowBlur = 30;
+    ctx.shadowBlur = 30 * s;
     ctx.fillStyle = 'rgba(15, 20, 30, 0.85)';
-    roundRect(ctx, cx, cy, cw, ch, 22);
+    roundRect(ctx, cx, cy, cw, ch, 22 * s);
     ctx.fill();
     ctx.shadowBlur = 0;
     // Inner border line
     ctx.strokeStyle = `${planet.accent}80`;
     ctx.lineWidth = 1;
-    roundRect(ctx, cx + 3, cy + 3, cw - 6, ch - 6, 18);
+    roundRect(ctx, cx + 3 * s, cy + 3 * s, cw - 6 * s, ch - 6 * s, 18 * s);
     ctx.stroke();
     // Planet number tag
-    ctx.font = '500 11px -apple-system, BlinkMacSystemFont, "Helvetica Neue", Helvetica, Arial, sans-serif';
+    ctx.font = `500 ${11 * s}px -apple-system, BlinkMacSystemFont, "Helvetica Neue", Helvetica, Arial, sans-serif`;
     ctx.fillStyle = planet.accent;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'top';
-    ctx.fillText(`PLANET ${gs.transitionCardPlanet + 1} OF ${PLANETS.length}`, w / 2, cy + 18);
+    ctx.fillText(`PLANET ${gs.transitionCardPlanet + 1} OF ${PLANETS.length}`, w / 2, cy + 18 * s);
     // Planet name
-    ctx.font = '600 26px -apple-system, BlinkMacSystemFont, "Helvetica Neue", Helvetica, Arial, sans-serif';
+    ctx.font = `600 ${26 * s}px -apple-system, BlinkMacSystemFont, "Helvetica Neue", Helvetica, Arial, sans-serif`;
     ctx.fillStyle = '#ffffff';
-    ctx.fillText(planet.name, w / 2, cy + 36);
+    ctx.fillText(planet.name, w / 2, cy + 36 * s);
     // Tagline
-    ctx.font = '400 13px -apple-system, BlinkMacSystemFont, "Helvetica Neue", Helvetica, Arial, sans-serif';
+    ctx.font = `400 ${13 * s}px -apple-system, BlinkMacSystemFont, "Helvetica Neue", Helvetica, Arial, sans-serif`;
     ctx.fillStyle = 'rgba(255,255,255,0.75)';
-    ctx.fillText(planet.tagline, w / 2, cy + 74);
+    ctx.fillText(planet.tagline, w / 2, cy + 74 * s);
     ctx.restore();
   }, []);
 
-  const drawStartScreen = useCallback((ctx, gs, w, h, t) => {
+  const drawStartScreen = useCallback((ctx, gs, w, h) => {
+    const s = gs.scale;
+    const planet = PLANETS[gs.planetIdx];
+    // Soft accent backdrop glow behind the title
+    ctx.save();
+    const titleGlow = ctx.createRadialGradient(w / 2, h * 0.22, 0, w / 2, h * 0.22, Math.min(w, h) * 0.4);
+    titleGlow.addColorStop(0, `${planet.accent}26`);
+    titleGlow.addColorStop(0.5, `${planet.accent}0c`);
+    titleGlow.addColorStop(1, `${planet.accent}00`);
+    ctx.fillStyle = titleGlow;
+    ctx.fillRect(0, 0, w, h * 0.5);
+    ctx.restore();
     // Title
     ctx.save();
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.font = '300 44px -apple-system, BlinkMacSystemFont, "Helvetica Neue", Helvetica, Arial, sans-serif';
+    ctx.font = `300 ${46 * s}px -apple-system, BlinkMacSystemFont, "Helvetica Neue", Helvetica, Arial, sans-serif`;
     ctx.fillStyle = '#ffffff';
-    ctx.shadowColor = 'rgba(0,0,0,0.5)';
-    ctx.shadowBlur = 6;
-    // Letter-spaced title
-    const title = 'STELLAR DRIFT';
-    ctx.letterSpacing = '4px';
-    ctx.fillText(title, w / 2, h * 0.28);
+    ctx.shadowColor = `${planet.accent}cc`;
+    ctx.shadowBlur = 14 * s;
+    ctx.letterSpacing = `${5 * s}px`;
+    ctx.fillText('STELLAR DRIFT', w / 2, h * 0.22);
     ctx.letterSpacing = '0px';
-    // Subtitle
-    ctx.font = '400 14px -apple-system, BlinkMacSystemFont, "Helvetica Neue", Helvetica, Arial, sans-serif';
-    ctx.fillStyle = 'rgba(255,255,255,0.75)';
-    ctx.shadowBlur = 3;
-    ctx.fillText('A voyage through the solar system', w / 2, h * 0.34);
+    ctx.font = `400 ${14 * s}px -apple-system, BlinkMacSystemFont, "Helvetica Neue", Helvetica, Arial, sans-serif`;
+    ctx.fillStyle = 'rgba(255,255,255,0.78)';
+    ctx.shadowColor = 'rgba(0,0,0,0.5)';
+    ctx.shadowBlur = 3 * s;
+    ctx.fillText('A voyage through the solar system', w / 2, h * 0.28);
     ctx.restore();
 
-    // Tap prompt (pulsing)
-    const pulse = 0.5 + 0.5 * Math.sin(t * 0.08);
-    ctx.save();
-    ctx.globalAlpha = 0.55 + pulse * 0.45;
-    ctx.font = '500 16px -apple-system, BlinkMacSystemFont, "Helvetica Neue", Helvetica, Arial, sans-serif';
-    ctx.fillStyle = '#ffffff';
-    ctx.textAlign = 'center';
-    ctx.shadowColor = 'rgba(0,0,0,0.6)';
-    ctx.shadowBlur = 6;
-    ctx.fillText('Tap to begin', w / 2, h * 0.72);
-    ctx.restore();
-
-    // Planet indicator dots
+    // Planet indicator dots (decorative)
     ctx.save();
     const n = PLANETS.length;
-    const spacing = 18;
+    const spacing = 18 * s;
     const totalW = (n - 1) * spacing;
     const startX = (w - totalW) / 2;
-    const dotY = h * 0.80;
+    const dotY = h * 0.34;
     for (let i = 0; i < n; i++) {
       const x = startX + i * spacing;
       ctx.fillStyle = i === 0 ? PLANETS[i].accent : 'rgba(255,255,255,0.25)';
       ctx.beginPath();
-      ctx.arc(x, dotY, i === 0 ? 4 : 3, 0, Math.PI * 2);
+      ctx.arc(x, dotY, (i === 0 ? 4 : 3) * s, 0, Math.PI * 2);
       ctx.fill();
     }
-    ctx.restore();
-
-    // Daily challenge banner
-    ctx.save();
-    const bw = Math.min(w - 60, 260), bh = 32;
-    const bx = (w - bw) / 2, by = h * 0.86;
-    ctx.fillStyle = 'rgba(255,255,255,0.10)';
-    roundRect(ctx, bx, by, bw, bh, 16);
-    ctx.fill();
-    ctx.strokeStyle = 'rgba(255,255,255,0.15)';
-    ctx.lineWidth = 1;
-    roundRect(ctx, bx, by, bw, bh, 16);
-    ctx.stroke();
-    ctx.font = '500 11px -apple-system, BlinkMacSystemFont, "Helvetica Neue", Helvetica, Arial, sans-serif';
-    ctx.fillStyle = 'rgba(255,255,255,0.85)';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText("TODAY'S CHALLENGE · REACH NEPTUNE", w / 2, by + bh / 2);
     ctx.restore();
 
     // Personal best
     if (gs.best > 0) {
       ctx.save();
-      ctx.font = '500 12px -apple-system, BlinkMacSystemFont, "Helvetica Neue", Helvetica, Arial, sans-serif';
+      ctx.font = `500 ${12 * s}px -apple-system, BlinkMacSystemFont, "Helvetica Neue", Helvetica, Arial, sans-serif`;
       ctx.fillStyle = 'rgba(255,255,255,0.6)';
       ctx.textAlign = 'center';
       ctx.fillText(`Personal best · ${gs.best}`, w / 2, h * 0.40);
@@ -1499,6 +2217,7 @@ export default function StellarDrift() {
 
   const drawDeathScreen = useCallback((ctx, gs, w, h, t) => {
     const overlay = Math.min(1, gs.deathOverlay / 20);
+    const s = gs.scale;
     ctx.save();
     ctx.fillStyle = `rgba(5, 10, 18, ${overlay * 0.72})`;
     ctx.fillRect(0, 0, w, h);
@@ -1510,66 +2229,55 @@ export default function StellarDrift() {
 
     ctx.save();
     ctx.globalAlpha = Math.min(1, cardAlpha);
-    const cw = Math.min(w - 50, 320);
-    const ch = 240;
+    const cw = Math.min(w - 50 * s, 320 * s);
+    const ch = 180 * s;
     const cx = (w - cw) / 2;
-    const cy = (h - ch) / 2;
+    const cy = (h - ch) / 2 - 40 * s;
 
     // Card
     ctx.fillStyle = 'rgba(15, 22, 35, 0.92)';
-    roundRect(ctx, cx, cy, cw, ch, 22);
+    roundRect(ctx, cx, cy, cw, ch, 22 * s);
     ctx.fill();
     ctx.strokeStyle = `${planet.accent}50`;
     ctx.lineWidth = 1;
-    roundRect(ctx, cx, cy, cw, ch, 22);
+    roundRect(ctx, cx, cy, cw, ch, 22 * s);
     ctx.stroke();
 
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
 
     // "JOURNEY ENDED"
-    ctx.font = '500 12px -apple-system, BlinkMacSystemFont, "Helvetica Neue", Helvetica, Arial, sans-serif';
+    ctx.font = `500 ${12 * s}px -apple-system, BlinkMacSystemFont, "Helvetica Neue", Helvetica, Arial, sans-serif`;
     ctx.fillStyle = 'rgba(255,255,255,0.6)';
-    ctx.fillText('JOURNEY ENDED', w / 2, cy + 28);
+    ctx.fillText('JOURNEY ENDED', w / 2, cy + 28 * s);
 
     // Final score
-    ctx.font = '300 64px -apple-system, BlinkMacSystemFont, "Helvetica Neue", Helvetica, Arial, sans-serif';
+    ctx.font = `300 ${64 * s}px -apple-system, BlinkMacSystemFont, "Helvetica Neue", Helvetica, Arial, sans-serif`;
     ctx.fillStyle = '#ffffff';
     ctx.shadowColor = 'rgba(0,0,0,0.5)';
-    ctx.shadowBlur = 6;
-    ctx.fillText(String(gs.score), w / 2, cy + 78);
+    ctx.shadowBlur = 6 * s;
+    ctx.fillText(String(gs.score), w / 2, cy + 78 * s);
     ctx.shadowBlur = 0;
 
     // Planet reached
-    ctx.font = '500 13px -apple-system, BlinkMacSystemFont, "Helvetica Neue", Helvetica, Arial, sans-serif';
+    ctx.font = `500 ${13 * s}px -apple-system, BlinkMacSystemFont, "Helvetica Neue", Helvetica, Arial, sans-serif`;
     ctx.fillStyle = planet.accent;
-    ctx.fillText(`Reached · ${planet.name}`, w / 2, cy + 122);
+    ctx.fillText(`Reached · ${planet.name}`, w / 2, cy + 122 * s);
 
     // Best
     if (gs.newBest) {
       const glowPulse = 0.5 + 0.5 * Math.sin(t * 0.15);
-      ctx.font = '600 13px -apple-system, BlinkMacSystemFont, "Helvetica Neue", Helvetica, Arial, sans-serif';
+      ctx.font = `600 ${13 * s}px -apple-system, BlinkMacSystemFont, "Helvetica Neue", Helvetica, Arial, sans-serif`;
       ctx.fillStyle = '#ffffff';
       ctx.shadowColor = planet.accent;
-      ctx.shadowBlur = 8 + glowPulse * 8;
-      ctx.fillText(`★ NEW BEST · ${gs.best}`, w / 2, cy + 148);
+      ctx.shadowBlur = (8 + glowPulse * 8) * s;
+      ctx.fillText(`★ NEW BEST · ${gs.best}`, w / 2, cy + 148 * s);
       ctx.shadowBlur = 0;
     } else {
-      ctx.font = '500 12px -apple-system, BlinkMacSystemFont, "Helvetica Neue", Helvetica, Arial, sans-serif';
+      ctx.font = `500 ${12 * s}px -apple-system, BlinkMacSystemFont, "Helvetica Neue", Helvetica, Arial, sans-serif`;
       ctx.fillStyle = 'rgba(255,255,255,0.55)';
-      ctx.fillText(`Best · ${gs.best}`, w / 2, cy + 148);
+      ctx.fillText(`Best · ${gs.best}`, w / 2, cy + 148 * s);
     }
-
-    // Tap to retry
-    const pulse = 0.5 + 0.5 * Math.sin(t * 0.10);
-    ctx.font = '500 14px -apple-system, BlinkMacSystemFont, "Helvetica Neue", Helvetica, Arial, sans-serif';
-    ctx.fillStyle = `rgba(255,255,255,${0.55 + pulse * 0.35})`;
-    ctx.fillText('Tap to try again', w / 2, cy + 184);
-
-    // Remove ads placeholder
-    ctx.font = '500 10px -apple-system, BlinkMacSystemFont, "Helvetica Neue", Helvetica, Arial, sans-serif';
-    ctx.fillStyle = 'rgba(255,255,255,0.35)';
-    ctx.fillText('· remove ads ·', w / 2, cy + 218);
 
     ctx.restore();
   }, []);
@@ -1578,10 +2286,24 @@ export default function StellarDrift() {
   // GAME LOGIC
   // ─────────────────────────────────────────────────────────────
   const spawnColumn = useCallback((gs) => {
-    const minGapY = gs.gap / 2 + 70;
-    const maxGapY = gs.h - gs.gap / 2 - 70;
+    const s = gs.phys.scale;
+    const margin = 70 * s;
+    const minGapY = gs.gap / 2 + margin;
+    const maxGapY = gs.h - gs.gap / 2 - margin;
     const gapY = Math.random() * (maxGapY - minGapY) + minGapY;
-    gs.columns.push({ x: gs.w + 20, gapY, gap: gs.gap, scored: false });
+    const colX = gs.w + 20 * s;
+    gs.columns.push({ x: colX, gapY, gap: gs.gap, scored: false });
+    // ~40% chance to spawn a Star Fragment in the gap, biased toward center
+    if (Math.random() < 0.4) {
+      const yOffset = (Math.random() - 0.5) * gs.gap * 0.4;
+      gs.fragments.push({
+        x: colX + gs.phys.columnWidth / 2,
+        y: gapY + yOffset,
+        rot: Math.random() * Math.PI * 2,
+        bounce: Math.random() * Math.PI * 2,
+        collected: false,
+      });
+    }
     gs.framesSinceSpawn = 0;
   }, []);
 
@@ -1589,22 +2311,30 @@ export default function StellarDrift() {
     if (gs.state !== 'playing') return;
     if (gs.time - gs.lastFlapFrame < 3) return; // per-frame guard
     gs.lastFlapFrame = gs.time;
-    gs.ship.vy = PHYSICS.thrust;
+    const phys = gs.phys;
+    const s = phys.scale;
+    // Additive impulse — downward momentum is half-absorbed so a tap can rescue
+    // a falling ship, but rapid tap-stacking caps at maxRiseSpeed.
+    const downwardAbsorb = Math.max(0, gs.ship.vy * 0.5);
+    const newVy = gs.ship.vy + phys.impulse - downwardAbsorb;
+    gs.ship.vy = Math.max(newVy, phys.maxRiseSpeed);
+    // Tiny lateral nudge — thruster jitter
+    gs.ship.vx += (Math.random() - 0.5) * 0.6 * s;
     const planet = PLANETS[gs.planetIdx];
     // Particles
     for (let i = 0; i < 11; i++) {
       const a = Math.random() * Math.PI * 2;
-      const sp = Math.random() * 3 + 1;
+      const sp = (Math.random() * 3 + 1) * s;
       gs.particles.push({
-        x: gs.ship.x - 10, y: gs.ship.y + (Math.random() - 0.5) * 6,
-        vx: Math.cos(a) * sp - 1, vy: Math.sin(a) * sp + 0.5,
-        r: Math.random() * 2.5 + 1.5,
+        x: gs.ship.x - 10 * s, y: gs.ship.y + (Math.random() - 0.5) * 6 * s,
+        vx: Math.cos(a) * sp - 1 * s, vy: Math.sin(a) * sp + 0.5 * s,
+        r: (Math.random() * 2.5 + 1.5) * s,
         life: 30, maxLife: 30,
         color: planet.accent,
       });
     }
     // Ring pulse
-    gs.rings.push({ x: gs.ship.x, y: gs.ship.y, radius: 8, life: 22, maxLife: 22, color: planet.accent });
+    gs.rings.push({ x: gs.ship.x, y: gs.ship.y, radius: 8 * s, life: 22, maxLife: 22, color: planet.accent, scale: s });
     const pitch = 1 - gs.ship.y / gs.h;
     playFlap(pitch);
   }, [playFlap]);
@@ -1622,10 +2352,24 @@ export default function StellarDrift() {
     gs.deathOverlay = 0;
     playDeath();
     setMusicLayer(0);
+    if (vibrationRef.current && typeof navigator !== 'undefined' && navigator.vibrate) {
+      try { navigator.vibrate([60, 40, 80]); } catch {}
+    }
     if (gs.score > gs.best) {
       gs.best = gs.score;
       gs.newBest = true;
       try { localStorage.setItem('stellardrift_best', String(gs.best)); } catch {}
+    }
+    // Leaderboard qualification — top 10 (or any score if board < 10 entries)
+    const lb = loadLeaderboard();
+    const lowest = lb.length >= LB_LIMIT ? lb[lb.length - 1].score : 0;
+    if (gs.score > 0 && (lb.length < LB_LIMIT || gs.score > lowest)) {
+      if (gs.onLeaderboardEligible) {
+        gs.onLeaderboardEligible({
+          score: gs.score,
+          planet: PLANETS[gs.planetIdx].name,
+        });
+      }
     }
     if (gs.score > 8 && !gs.ratedThisRun) {
       onRatingPromptEligible();
@@ -1635,11 +2379,14 @@ export default function StellarDrift() {
 
   const startGame = useCallback((gs) => {
     gs.state = 'playing';
+    gs.ship.x = gs.w * gs.phys.shipX;
     gs.ship.y = gs.h * 0.5;
+    gs.ship.vx = 0;
     gs.ship.vy = 0;
     gs.ship.tilt = 0;
     gs.ship.trail = [];
     gs.columns = [];
+    gs.fragments = [];
     gs.particles = [];
     gs.rings = [];
     gs.popups = [];
@@ -1652,8 +2399,8 @@ export default function StellarDrift() {
     gs.planetTransition = 1;
     gs.obstaclesInPlanet = 0;
     gs.framesSinceSpawn = 999;
-    gs.spawnInterval = PHYSICS.startSpawnInterval;
-    gs.gap = PHYSICS.startGap;
+    gs.spawnInterval = gs.phys.startSpawnInterval;
+    gs.gap = gs.phys.startGap;
     gs.shake = 0;
     gs.flash = 0;
     gs.deathOverlay = 0;
@@ -1678,11 +2425,19 @@ export default function StellarDrift() {
       const ctx = canvas.getContext('2d');
       const w = gs.w, h = gs.h;
       gs.time++;
+      // Mirror gs.state into React so menu DOM can react to play/dead transitions.
+      if (gs.state !== gs._lastViewSeen) {
+        gs._lastViewSeen = gs.state;
+        if (gs.onView) gs.onView(gs.state);
+      }
 
       // Resolve current planet & speed at top so HUD always has it
       const planet = PLANETS[gs.planetIdx];
-      const speedMul = 1 + (gs.score * PHYSICS.speedPerObstacle + gs.planetIdx * 0.4);
-      const currentSpeed = PHYSICS.baseSpeed * speedMul / 1.0; // pixels/frame, scaled later
+      const phys = gs.phys;
+      const s = phys.scale;
+      // Difficulty multiplier — unitless. Tracks total run difficulty.
+      const speedMul = 1 + (gs.score * 0.025 + gs.planetIdx * 0.10);
+      const moveSpeed = phys.baseSpeed * speedMul;
 
       // Apply planet transition crossfade
       if (gs.planetTransition < 1) {
@@ -1696,23 +2451,31 @@ export default function StellarDrift() {
         if (gs.framesSinceSpawn >= gs.spawnInterval) {
           spawnColumn(gs);
         }
-        // Ship physics
-        gs.ship.vy += PHYSICS.gravity;
-        gs.ship.vy = Math.min(gs.ship.vy, 12);
+        // Ship physics — momentum-based, floaty
+        gs.ship.vy += phys.gravity;
+        if (gs.ship.vy < phys.maxRiseSpeed) gs.ship.vy = phys.maxRiseSpeed;
+        if (gs.ship.vy > phys.maxFallSpeed) gs.ship.vy = phys.maxFallSpeed;
         gs.ship.y += gs.ship.vy;
-        gs.ship.tilt = Math.max(-0.5, Math.min(0.9, gs.ship.vy * 0.06));
+        // Smoothed tilt — based on unscaled vy ratio so feel is consistent across viewports
+        const targetTilt = Math.max(-0.5, Math.min(0.9, (gs.ship.vy / s) * 0.06));
+        gs.ship.tilt += (targetTilt - gs.ship.tilt) * phys.tiltSmoothing;
+        // Lateral drift influenced by tilt + ambient sway + gentle recenter
+        const restX = gs.w * phys.shipX;
+        gs.ship.vx += gs.ship.tilt * phys.lateralTiltInfluence;
+        gs.ship.vx += Math.sin(gs.time * 0.04) * 0.015 * phys.lateralAmbientSway;
+        gs.ship.vx += (restX - gs.ship.x) * phys.lateralRecenter;
+        gs.ship.vx *= phys.lateralDamping;
+        gs.ship.x += gs.ship.vx;
         // Trail
         if (gs.time % 2 === 0) {
-          gs.ship.trail.push({ x: gs.ship.x - 12, y: gs.ship.y });
+          gs.ship.trail.push({ x: gs.ship.x - 12 * s, y: gs.ship.y });
           if (gs.ship.trail.length > 12) gs.ship.trail.shift();
         }
-        // Columns
-        const moveSpeed = PHYSICS.baseSpeed + gs.score * PHYSICS.speedPerObstacle + gs.planetIdx * 0.4;
         for (let i = gs.columns.length - 1; i >= 0; i--) {
           const c = gs.columns[i];
           c.x -= moveSpeed;
           // Score?
-          if (!c.scored && c.x + PHYSICS.columnWidth < gs.ship.x - PHYSICS.shipRadius * 0.6) {
+          if (!c.scored && c.x + phys.columnWidth < gs.ship.x - phys.shipRadius * 0.6) {
             c.scored = true;
             gs.score++;
             gs.obstaclesInPlanet++;
@@ -1721,16 +2484,16 @@ export default function StellarDrift() {
             gs.scoreFlash = 10;
             // Score popup
             gs.popups.push({
-              text: '+1', x: c.x + PHYSICS.columnWidth / 2, y: c.gapY,
-              size: 22, color: planet.accent,
-              life: 40, maxLife: 40, vy: -1,
+              text: '+1', x: c.x + phys.columnWidth / 2, y: c.gapY,
+              size: 22 * s, color: planet.accent,
+              life: 40, maxLife: 40, vy: -1 * s,
             });
             playScore(gs.combo);
             if (gs.combo >= 4 && gs.combo % 4 === 0) {
               gs.popups.push({
                 text: `×${gs.combo} COMBO`, x: w / 2, y: h * 0.4,
-                size: 32, color: planet.accent,
-                life: 50, maxLife: 50, vy: -0.6,
+                size: 32 * s, color: planet.accent,
+                life: 50, maxLife: 50, vy: -0.6 * s,
               });
               playCombo();
             }
@@ -1742,11 +2505,11 @@ export default function StellarDrift() {
             if (gs.score === 5 || gs.score === 15 || gs.score === 25 || gs.score === 50 || gs.score === 75 || gs.score === 100) {
               for (let k = 0; k < 30; k++) {
                 const a = Math.random() * Math.PI * 2;
-                const sp = Math.random() * 5 + 1.5;
+                const sp = (Math.random() * 5 + 1.5) * s;
                 gs.particles.push({
-                  x: c.x + PHYSICS.columnWidth / 2, y: c.gapY,
+                  x: c.x + phys.columnWidth / 2, y: c.gapY,
                   vx: Math.cos(a) * sp, vy: Math.sin(a) * sp,
-                  r: Math.random() * 3 + 1.5,
+                  r: (Math.random() * 3 + 1.5) * s,
                   life: 50, maxLife: 50,
                   color: planet.accent,
                 });
@@ -1763,35 +2526,74 @@ export default function StellarDrift() {
               gs.planetTransition = 0;
               gs.transitionCard = 120;
               gs.transitionCardPlanet = gs.planetIdx;
-              gs.gap = Math.max(PHYSICS.minGap, gs.gap - PHYSICS.gapShrinkPerPlanet);
-              gs.spawnInterval = Math.max(PHYSICS.minSpawnInterval, gs.spawnInterval - PHYSICS.spawnShrinkPerPlanet);
-              gs.stars = makeStars(w, h, 60);
-              gs.dust = makeDust(w, h, 30);
+              gs.gap = Math.max(phys.minGap, gs.gap - phys.gapShrinkPerPlanet);
+              gs.spawnInterval = Math.max(phys.minSpawnInterval, gs.spawnInterval - phys.spawnShrinkPerPlanet);
+              gs.stars = makeStars(w, h, 60, s);
+              gs.dust = makeDust(w, h, 30, s);
               playLevelUp();
             }
           }
           // Off-screen
-          if (c.x + PHYSICS.columnWidth + 20 < 0) {
+          if (c.x + phys.columnWidth + 20 * s < 0) {
             gs.columns.splice(i, 1);
             continue;
           }
           // Collision
           const topH = c.gapY - c.gap / 2;
           const botY = c.gapY + c.gap / 2;
-          const sx = gs.ship.x, sy = gs.ship.y, sr = PHYSICS.shipRadius - 2;
-          if (sx + sr > c.x && sx - sr < c.x + PHYSICS.columnWidth) {
+          const sx = gs.ship.x, sy = gs.ship.y, sr = phys.shipRadius - 2 * s;
+          if (sx + sr > c.x && sx - sr < c.x + phys.columnWidth) {
             if (sy - sr < topH || sy + sr > botY) {
               die(gs);
             }
           }
         }
         // Ground/ceiling
-        if (gs.ship.y - PHYSICS.shipRadius < 0) {
-          gs.ship.y = PHYSICS.shipRadius;
+        if (gs.ship.y - phys.shipRadius < 0) {
+          gs.ship.y = phys.shipRadius;
           gs.ship.vy = 0;
         }
-        if (gs.ship.y + PHYSICS.shipRadius > h) {
+        if (gs.ship.y + phys.shipRadius > h) {
           die(gs);
+        }
+        // Star Fragments — move with world, animate, collect on overlap
+        for (let i = gs.fragments.length - 1; i >= 0; i--) {
+          const f = gs.fragments[i];
+          f.x -= moveSpeed;
+          f.rot += 0.045;
+          f.bounce += 0.08;
+          if (!f.collected) {
+            const dx = f.x - gs.ship.x;
+            const dy = f.y - gs.ship.y;
+            const cr = phys.shipRadius + 12 * s;
+            if (dx * dx + dy * dy < cr * cr) {
+              f.collected = true;
+              const newTotal = loadFragments() + 1;
+              saveFragments(newTotal);
+              if (gs.onFragmentChange) gs.onFragmentChange(newTotal);
+              playFragment();
+              // Particle burst in accent
+              for (let k = 0; k < 22; k++) {
+                const a = Math.random() * Math.PI * 2;
+                const sp = (Math.random() * 4 + 1) * s;
+                gs.particles.push({
+                  x: f.x, y: f.y,
+                  vx: Math.cos(a) * sp, vy: Math.sin(a) * sp,
+                  r: (Math.random() * 2.5 + 1) * s,
+                  life: 40, maxLife: 40,
+                  color: planet.accent,
+                });
+              }
+              gs.popups.push({
+                text: '+1 ★', x: f.x, y: f.y - 10 * s,
+                size: 18 * s, color: planet.accent,
+                life: 36, maxLife: 36, vy: -1 * s,
+              });
+            }
+          }
+          if (f.collected || f.x + 30 * s < 0) {
+            gs.fragments.splice(i, 1);
+          }
         }
         // Combo timer
         if (gs.comboTimer > 0) {
@@ -1801,19 +2603,22 @@ export default function StellarDrift() {
       } else if (gs.state === 'start') {
         // Idle ship bob
         gs.ship.idleT += 0.04;
-        gs.ship.y = h * 0.5 + Math.sin(gs.ship.idleT) * 14;
-        gs.ship.vy = Math.cos(gs.ship.idleT) * 14 * 0.04;
+        gs.ship.y = h * 0.5 + Math.sin(gs.ship.idleT) * 14 * s;
+        gs.ship.vy = Math.cos(gs.ship.idleT) * 14 * 0.04 * s;
+        gs.ship.vx = 0;
         gs.ship.tilt = Math.cos(gs.ship.idleT) * 0.12;
-        gs.ship.x = w * PHYSICS.shipX;
+        gs.ship.x = w * phys.shipX;
         if (gs.time % 4 === 0) {
-          gs.ship.trail.push({ x: gs.ship.x - 12, y: gs.ship.y });
+          gs.ship.trail.push({ x: gs.ship.x - 12 * s, y: gs.ship.y });
           if (gs.ship.trail.length > 10) gs.ship.trail.shift();
         }
       } else if (gs.state === 'dead') {
         gs.deathOverlay = Math.min(20, gs.deathOverlay + 1);
         // Ship falls
-        gs.ship.vy += PHYSICS.gravity * 0.6;
+        gs.ship.vy += phys.gravity * 0.6;
         gs.ship.y += gs.ship.vy;
+        gs.ship.x += gs.ship.vx;
+        gs.ship.vx *= 0.95;
         gs.ship.tilt = Math.min(1.2, gs.ship.tilt + 0.02);
       }
 
@@ -1821,7 +2626,7 @@ export default function StellarDrift() {
       for (let i = gs.particles.length - 1; i >= 0; i--) {
         const p = gs.particles[i];
         p.x += p.vx; p.y += p.vy;
-        p.vy += 0.08;
+        p.vy += 0.08 * s;
         p.vx *= 0.98;
         p.life--;
         if (p.life <= 0) gs.particles.splice(i, 1);
@@ -1829,14 +2634,14 @@ export default function StellarDrift() {
       // Rings update
       for (let i = gs.rings.length - 1; i >= 0; i--) {
         const r = gs.rings[i];
-        r.radius += 2.5;
+        r.radius += 2.5 * (r.scale || s);
         r.life--;
         if (r.life <= 0) gs.rings.splice(i, 1);
       }
       // Popups update
       for (let i = gs.popups.length - 1; i >= 0; i--) {
         const p = gs.popups[i];
-        p.y += p.vy || -1;
+        p.y += p.vy || -1 * s;
         p.life--;
         if (p.life <= 0) gs.popups.splice(i, 1);
       }
@@ -1848,8 +2653,8 @@ export default function StellarDrift() {
 
       // ── DRAW to offscreen for bloom pass ──
       const offCtx = off.getContext('2d');
-      const shakeX = gs.shake > 0 ? (Math.random() - 0.5) * gs.shake : 0;
-      const shakeY = gs.shake > 0 ? (Math.random() - 0.5) * gs.shake : 0;
+      const shakeX = gs.shake > 0 ? (Math.random() - 0.5) * gs.shake * s : 0;
+      const shakeY = gs.shake > 0 ? (Math.random() - 0.5) * gs.shake * s : 0;
 
       offCtx.save();
       offCtx.clearRect(0, 0, w, h);
@@ -1858,15 +2663,15 @@ export default function StellarDrift() {
       // Background — handle crossfade if transitioning
       if (gs.planetTransition < 1 && gs.prevPlanetIdx !== gs.planetIdx) {
         const prev = PLANETS[gs.prevPlanetIdx];
-        drawBackground(offCtx, w, h, prev, gs.time);
+        drawBackground(offCtx, w, h, prev, gs.time, s);
         drawStars(offCtx, gs.stars, gs.time, 1 - gs.planetTransition);
         offCtx.save();
         offCtx.globalAlpha = gs.planetTransition;
-        drawBackground(offCtx, w, h, planet, gs.time);
+        drawBackground(offCtx, w, h, planet, gs.time, s);
         drawStars(offCtx, gs.stars, gs.time, gs.planetTransition);
         offCtx.restore();
       } else {
-        drawBackground(offCtx, w, h, planet, gs.time);
+        drawBackground(offCtx, w, h, planet, gs.time, s);
         drawStars(offCtx, gs.stars, gs.time, 1);
       }
 
@@ -1877,13 +2682,29 @@ export default function StellarDrift() {
 
       // Columns (only while playing or dead-falling)
       if (gs.state === 'playing' || gs.state === 'dead') {
-        gs.columns.forEach((c) => drawColumnPair(offCtx, c, planet, h));
+        gs.columns.forEach((c) => drawColumnPair(offCtx, c, planet, h, phys.columnWidth, s));
+      }
+
+      // Star Fragments (between columns and ship)
+      if (gs.state === 'playing' || gs.state === 'dead') {
+        drawFragments(offCtx, gs.fragments, planet, s);
       }
 
       // Rings (under ship)
       drawRings(offCtx, gs.rings);
+      // Cinematic ambient halo behind the ship on the start screen
+      if (gs.state === 'start') {
+        const haloPulse = 0.85 + Math.sin(gs.time * 0.04) * 0.15;
+        const haloR = Math.min(w, h) * 0.32 * haloPulse;
+        const halo = offCtx.createRadialGradient(gs.ship.x, gs.ship.y, 0, gs.ship.x, gs.ship.y, haloR);
+        halo.addColorStop(0, `${planet.accent}38`);
+        halo.addColorStop(0.5, `${planet.accent}14`);
+        halo.addColorStop(1, `${planet.accent}00`);
+        offCtx.fillStyle = halo;
+        offCtx.fillRect(0, 0, w, h);
+      }
       // Ship
-      drawShip(offCtx, gs.ship, planet, gs.time);
+      drawShip(offCtx, gs.ship, planet, gs.time, s, gs.shipDesign, gs.shipColor);
       // Particles
       drawParticles(offCtx, gs.particles);
       // Popups
@@ -1902,10 +2723,20 @@ export default function StellarDrift() {
       ctx.save();
       ctx.globalAlpha = 0.40;
       ctx.globalCompositeOperation = 'lighter';
-      ctx.filter = 'blur(8px)';
+      ctx.filter = `blur(${8 * s}px)`;
       ctx.drawImage(off, 0, 0);
       ctx.filter = 'none';
       ctx.globalCompositeOperation = 'source-over';
+      ctx.restore();
+
+      // Vignette — soft dark edges to focus the eye, deepens for the start menu
+      ctx.save();
+      const vigDepth = gs.state === 'start' ? 0.55 : 0.38;
+      const vg = ctx.createRadialGradient(w / 2, h * 0.50, Math.min(w, h) * 0.40, w / 2, h * 0.50, Math.max(w, h) * 0.85);
+      vg.addColorStop(0, 'rgba(0,0,0,0)');
+      vg.addColorStop(1, `rgba(0,0,0,${vigDepth})`);
+      ctx.fillStyle = vg;
+      ctx.fillRect(0, 0, w, h);
       ctx.restore();
 
       // White flash on death
@@ -1928,7 +2759,7 @@ export default function StellarDrift() {
 
       // Start / Death screens
       if (gs.state === 'start') {
-        drawStartScreen(ctx, gs, w, h, gs.time);
+        drawStartScreen(ctx, gs, w, h);
       } else if (gs.state === 'dead') {
         drawDeathScreen(ctx, gs, w, h, gs.time);
       }
@@ -1939,9 +2770,9 @@ export default function StellarDrift() {
     rafRef.current = requestAnimationFrame(step);
   }, [
     spawnColumn, drawBackground, drawStars, drawDust, drawColumnPair,
-    drawShip, drawParticles, drawRings, drawPopups, drawFog,
+    drawShip, drawParticles, drawRings, drawPopups, drawFog, drawFragments,
     drawHUD, drawStartScreen, drawDeathScreen, drawTransitionCard,
-    die, playScore, playCombo, playLevelUp, setMusicLayer, makeStars, makeDust,
+    die, playScore, playCombo, playLevelUp, playFragment, setMusicLayer, makeStars, makeDust,
   ]);
 
   // ─────────────────────────────────────────────────────────────
@@ -1972,11 +2803,15 @@ export default function StellarDrift() {
       const offCtx = off.getContext('2d');
       offCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
             if (gsRef.current) {
-        const prevW = gsRef.current.w;
         const prevH = gsRef.current.h;
+        const oldScale = gsRef.current.scale || getScale(prevH > 0 ? gsRef.current.w : w, prevH || h);
+        const newScale = getScale(w, h);
+        const scaleRatio = newScale / oldScale;
         gsRef.current.w = w;
         gsRef.current.h = h;
-        gsRef.current.ship.x = w * PHYSICS.shipX;
+        gsRef.current.scale = newScale;
+        gsRef.current.phys = makePhysics(newScale);
+        gsRef.current.ship.x = w * gsRef.current.phys.shipX;
         // Re-center ship vertically if not actively playing
         if (gsRef.current.state !== 'playing') {
           gsRef.current.ship.y = h * 0.5;
@@ -1984,8 +2819,25 @@ export default function StellarDrift() {
           // Scale ship Y proportionally during play
           gsRef.current.ship.y = (gsRef.current.ship.y / prevH) * h;
         }
-        gsRef.current.stars = makeStars(w, h, 60);
-        gsRef.current.dust = makeDust(w, h, 30);
+        // Rescale velocities and gameplay pixel quantities
+        gsRef.current.ship.vy *= scaleRatio;
+        gsRef.current.ship.vx = 0;
+        if (gsRef.current.columns && gsRef.current.columns.length) {
+          gsRef.current.columns.forEach((c) => {
+            c.gapY = (c.gapY / prevH) * h;
+            c.gap *= scaleRatio;
+            c.x *= scaleRatio;
+          });
+        }
+        if (gsRef.current.fragments && gsRef.current.fragments.length) {
+          gsRef.current.fragments.forEach((f) => {
+            f.y = (f.y / prevH) * h;
+            f.x *= scaleRatio;
+          });
+        }
+        gsRef.current.gap *= scaleRatio;
+        gsRef.current.stars = makeStars(w, h, 60, newScale);
+        gsRef.current.dust = makeDust(w, h, 30, newScale);
       } else {
         gsRef.current = initGameState(w, h);
       }
@@ -2051,20 +2903,131 @@ export default function StellarDrift() {
     handleInput();
   }, [handleInput]);
 
-  const toggleMute = useCallback((e) => {
-    e.stopPropagation();
-    setMuted((m) => {
-      const next = !m;
-      const a = audioRef.current;
-      if (a) {
-        try {
-          a.master.gain.cancelScheduledValues(a.ctx.currentTime);
-          a.master.gain.linearRampToValueAtTime(next ? 0 : 0.7, a.ctx.currentTime + 0.15);
-        } catch {}
+  // Apply mute state to master gain
+  useEffect(() => {
+    const a = audioRef.current;
+    if (a) {
+      try {
+        a.master.gain.cancelScheduledValues(a.ctx.currentTime);
+        a.master.gain.linearRampToValueAtTime(muted ? 0 : 0.7, a.ctx.currentTime + 0.15);
+      } catch {}
+    }
+  }, [muted]);
+
+  // Player taps the PLAY button — start the game (and audio) immediately
+  const handlePlay = useCallback(() => {
+    playMenuTap();
+    const gs = gsRef.current;
+    if (!gs) return;
+    if (!gs.hasInteracted) {
+      initAudio();
+      resumeAudio();
+      startMusic();
+      gs.hasInteracted = true;
+    } else {
+      resumeAudio();
+    }
+    if (gs.state === 'start' || gs.state === 'dead') startGame(gs);
+  }, [initAudio, resumeAudio, startMusic, startGame, playMenuTap]);
+
+  const handleOpenPanel = useCallback((panel) => {
+    playMenuTap();
+    if (!audioRef.current) {
+      initAudio();
+      resumeAudio();
+    }
+    setOpenPanel(panel);
+  }, [initAudio, resumeAudio, playMenuTap]);
+
+  const handleClosePanel = useCallback(() => {
+    playMenuTap();
+    setOpenPanel(null);
+  }, [playMenuTap]);
+
+  const handleUnlockShip = useCallback((shipId) => {
+    const ship = SHIP_DESIGNS.find((d) => d.id === shipId);
+    if (!ship || ownedShips.includes(shipId)) return;
+    if (fragments < ship.cost) return;
+    const newCount = fragments - ship.cost;
+    setFragments(newCount);
+    saveFragments(newCount);
+    setOwnedShips((arr) => [...arr, shipId]);
+    setSelectedShip(shipId);
+    onShipSkinUnlocked(shipId);
+    playLevelUp();
+  }, [fragments, ownedShips, playLevelUp]);
+
+  const handleUnlockColor = useCallback((colorId) => {
+    const c = SHIP_COLORS.find((x) => x.id === colorId);
+    if (!c || ownedColors.includes(colorId)) return;
+    if (fragments < c.cost) return;
+    const newCount = fragments - c.cost;
+    setFragments(newCount);
+    saveFragments(newCount);
+    setOwnedColors((arr) => [...arr, colorId]);
+    setSelectedColor(colorId);
+    playLevelUp();
+  }, [fragments, ownedColors, playLevelUp]);
+
+  const handleSelectShip = useCallback((shipId) => {
+    if (!ownedShips.includes(shipId)) return;
+    playMenuTap();
+    setSelectedShip(shipId);
+  }, [ownedShips, playMenuTap]);
+
+  const handleSelectColor = useCallback((colorId) => {
+    if (!ownedColors.includes(colorId)) return;
+    playMenuTap();
+    setSelectedColor(colorId);
+  }, [ownedColors, playMenuTap]);
+
+  const handleSubmitInitials = useCallback(() => {
+    if (!pendingEntry) return;
+    const cleaned = (initials || 'AAA').toUpperCase().replace(/[^A-Z]/g, 'A').padEnd(3, 'A').slice(0, 3);
+    const entry = {
+      id: `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      initials: cleaned,
+      score: pendingEntry.score,
+      planet: pendingEntry.planet,
+      date: new Date().toISOString().slice(0, 10),
+    };
+    const next = [...leaderboard, entry].sort((a, b) => b.score - a.score).slice(0, LB_LIMIT);
+    setLeaderboard(next);
+    saveLeaderboard(next);
+    setLastEntryId(entry.id);
+    setPendingEntry(null);
+    setInitials('AAA');
+    playLevelUp();
+  }, [pendingEntry, initials, leaderboard, playLevelUp]);
+
+  const handleShareScore = useCallback(async (score, planet) => {
+    const text = `I reached ${planet} with ${score} points in Stellar Drift! Beat me: ${VERCEL_URL}`;
+    try {
+      if (navigator.share) {
+        await navigator.share({ text });
+      } else if (navigator.clipboard) {
+        await navigator.clipboard.writeText(text);
+      } else {
+        // Fallback: create a temporary input
+        const el = document.createElement('textarea');
+        el.value = text;
+        document.body.appendChild(el);
+        el.select();
+        document.execCommand('copy');
+        document.body.removeChild(el);
       }
-      return next;
-    });
+      setShareToast(true);
+      setTimeout(() => setShareToast(false), 1800);
+    } catch {}
   }, []);
+
+  // Block in-game taps from triggering while a menu panel or initials modal is open
+  const tapsBlocked = openPanel !== null || pendingEntry !== null || view === 'start';
+  const onCanvasTap = useCallback((e) => {
+    if (tapsBlocked) return;
+    e.preventDefault();
+    handleInput();
+  }, [tapsBlocked, handleInput]);
 
   return (
     <div
@@ -2082,6 +3045,7 @@ export default function StellarDrift() {
         userSelect: 'none',
         WebkitUserSelect: 'none',
         touchAction: 'none',
+        fontFamily: '-apple-system, BlinkMacSystemFont, "Inter", "Helvetica Neue", Helvetica, Arial, sans-serif',
       }}
     >
       <div
@@ -2100,8 +3064,8 @@ export default function StellarDrift() {
           userSelect: 'none',
           WebkitUserSelect: 'none',
         }}
-        onTouchStart={onTouchStart}
-        onMouseDown={onMouseDown}
+        onTouchStart={onCanvasTap}
+        onMouseDown={onCanvasTap}
       >
         <canvas
           ref={canvasRef}
@@ -2115,38 +3079,822 @@ export default function StellarDrift() {
             WebkitUserSelect: 'none',
           }}
         />
-        {/* Mute toggle */}
+
+        {/* Start menu — bottom buttons with fragments counter on top */}
+        {view === 'start' && !openPanel && (
+          <StartMenuOverlay
+            fragments={fragments}
+            onPlay={handlePlay}
+            onOpenPanel={handleOpenPanel}
+          />
+        )}
+
+        {/* Death menu — replay + share when there's no pending initials entry */}
+        {view === 'dead' && !pendingEntry && (
+          <DeathOverlay
+            score={gsRef.current?.score || 0}
+            planet={PLANETS[gsRef.current?.planetIdx || 0].name}
+            onRetry={handlePlay}
+            onShare={handleShareScore}
+            onLeaderboard={() => handleOpenPanel('leaderboard')}
+          />
+        )}
+
+        {/* Initials entry modal when score qualifies for the leaderboard */}
+        {pendingEntry && (
+          <InitialsModal
+            entry={pendingEntry}
+            initials={initials}
+            onChange={setInitials}
+            onSubmit={handleSubmitInitials}
+          />
+        )}
+
+        {/* Panels */}
+        {openPanel === 'ships' && (
+          <ShipsPanel
+            fragments={fragments}
+            ownedShips={ownedShips}
+            ownedColors={ownedColors}
+            selectedShip={selectedShip}
+            selectedColor={selectedColor}
+            onSelectShip={handleSelectShip}
+            onSelectColor={handleSelectColor}
+            onUnlockShip={handleUnlockShip}
+            onUnlockColor={handleUnlockColor}
+            onClose={handleClosePanel}
+          />
+        )}
+        {openPanel === 'leaderboard' && (
+          <LeaderboardPanel
+            entries={leaderboard}
+            highlightId={lastEntryId}
+            onShare={handleShareScore}
+            onClose={handleClosePanel}
+          />
+        )}
+        {openPanel === 'settings' && (
+          <SettingsPanel
+            muted={muted}
+            vibration={vibration}
+            colorBlind={colorBlind}
+            onMutedChange={setMuted}
+            onVibrationChange={setVibration}
+            onColorBlindChange={setColorBlind}
+            onClose={handleClosePanel}
+          />
+        )}
+
+        {/* Transient share-success toast */}
+        {shareToast && (
+          <div
+            style={{
+              position: 'absolute',
+              bottom: 90,
+              left: '50%',
+              transform: 'translateX(-50%)',
+              padding: '10px 18px',
+              borderRadius: 20,
+              background: 'rgba(20,25,38,0.92)',
+              color: '#fff',
+              fontSize: 13,
+              border: '1px solid rgba(255,255,255,0.10)',
+              backdropFilter: 'blur(12px)',
+              WebkitBackdropFilter: 'blur(12px)',
+              boxShadow: '0 8px 28px rgba(0,0,0,0.4)',
+              pointerEvents: 'none',
+              animation: 'sd-fade 0.25s ease-out',
+            }}
+          >
+            Score copied — share it!
+          </div>
+        )}
+
+        {/* Global animation + design-token styles */}
+        <style>{`
+          @keyframes sd-fade {
+            from { opacity: 0; transform: translate(-50%, 8px); }
+            to   { opacity: 1; transform: translate(-50%, 0); }
+          }
+          @keyframes sd-panel-in {
+            0%   { opacity: 0; transform: scale(0.86); }
+            65%  { opacity: 1; transform: scale(1.025); }
+            100% { opacity: 1; transform: scale(1); }
+          }
+          @keyframes sd-overlay-in {
+            from { opacity: 0; }
+            to   { opacity: 1; }
+          }
+          @keyframes sd-title-in {
+            0%   { opacity: 0; transform: translateY(8px); letter-spacing: 14px; }
+            100% { opacity: 1; transform: translateY(0);   letter-spacing: 4px; }
+          }
+          @keyframes sd-soft-pulse {
+            0%, 100% { box-shadow: 0 16px 40px rgba(0,0,0,0.45), 0 0 30px rgba(255,255,255,0.12), 0 0 0 1px rgba(255,255,255,0.06) inset; }
+            50%      { box-shadow: 0 16px 44px rgba(0,0,0,0.50), 0 0 56px rgba(255,255,255,0.22), 0 0 0 1px rgba(255,255,255,0.08) inset; }
+          }
+          .sd-btn {
+            transition: transform 0.14s cubic-bezier(0.34, 1.56, 0.64, 1), background 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
+          }
+          .sd-btn:active { transform: scale(0.95); }
+          .sd-btn-primary {
+            animation: sd-soft-pulse 3.4s ease-in-out infinite;
+          }
+          .sd-btn-primary:active { transform: scale(0.93); }
+        `}</style>
+      </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════
+// MENU UI COMPONENTS (DOM overlays on the canvas)
+// ═══════════════════════════════════════════════════════════════
+
+const cardStyle = {
+  background: 'rgba(18, 24, 38, 0.82)',
+  backdropFilter: 'blur(22px) saturate(140%)',
+  WebkitBackdropFilter: 'blur(22px) saturate(140%)',
+  border: '1px solid rgba(255,255,255,0.10)',
+  borderRadius: 28,
+  boxShadow: '0 24px 64px rgba(0,0,0,0.55)',
+  color: '#ffffff',
+  WebkitTapHighlightColor: 'transparent',
+};
+
+const overlayBackdropStyle = {
+  position: 'absolute',
+  inset: 0,
+  background: 'rgba(4, 6, 12, 0.55)',
+  backdropFilter: 'blur(4px)',
+  WebkitBackdropFilter: 'blur(4px)',
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  zIndex: 10,
+  animation: 'sd-overlay-in 0.2s ease-out',
+  touchAction: 'none',
+};
+
+const stopProp = (e) => e.stopPropagation();
+
+function Icon({ name, size = 22, color = 'currentColor' }) {
+  const common = { width: size, height: size, viewBox: '0 0 24 24', fill: 'none', stroke: color, strokeWidth: 1.8, strokeLinecap: 'round', strokeLinejoin: 'round' };
+  if (name === 'play') return (
+    <svg {...common} fill={color} stroke="none"><path d="M7 5v14l12 -7z" /></svg>
+  );
+  if (name === 'ship') return (
+    <svg {...common}><path d="M14 3l5 5l-7 7l-5 -5z" /><path d="M14 3l-3 3l5 5l3 -3" /><path d="M10 14l-3 3l-3 -1l1 -3z" /><circle cx="14.5" cy="8.5" r="0.8" fill={color}/></svg>
+  );
+  if (name === 'trophy') return (
+    <svg {...common}><path d="M8 4h8v4a4 4 0 0 1 -8 0z" /><path d="M5 6h3v2a3 3 0 0 1 -3 -3" /><path d="M19 6h-3v2a3 3 0 0 0 3 -3" /><path d="M10 14h4v3h-4z" /><path d="M9 20h6" /><path d="M10 17v3" /><path d="M14 17v3" /></svg>
+  );
+  if (name === 'gear') return (
+    <svg {...common}><circle cx="12" cy="12" r="3" /><path d="M12 2v3M12 19v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2 12h3M19 12h3M4.2 19.8l2.1 -2.1M17.7 6.3l2.1 -2.1" /></svg>
+  );
+  if (name === 'star') return (
+    <svg {...common} fill={color} stroke="none"><path d="M12 3l2.7 6.1l6.7 0.6l-5.1 4.4l1.5 6.6L12 17.5l-5.8 3.2l1.5 -6.6l-5.1 -4.4l6.7 -0.6z" /></svg>
+  );
+  if (name === 'close') return (
+    <svg {...common}><path d="M6 6l12 12M6 18L18 6" /></svg>
+  );
+  if (name === 'share') return (
+    <svg {...common}><circle cx="6" cy="12" r="2.4"/><circle cx="18" cy="6" r="2.4"/><circle cx="18" cy="18" r="2.4"/><path d="M8 11l8 -4M8 13l8 4"/></svg>
+  );
+  if (name === 'check') return (
+    <svg {...common}><path d="M5 13l4 4l10 -10" /></svg>
+  );
+  if (name === 'lock') return (
+    <svg {...common}><rect x="5" y="10" width="14" height="10" rx="2" /><path d="M8 10v-3a4 4 0 0 1 8 0v3" /></svg>
+  );
+  return null;
+}
+
+function StartMenuOverlay({ fragments, onPlay, onOpenPanel }) {
+  return (
+    <>
+      {/* Fragments counter — top center */}
+      <div
+        style={{
+          position: 'absolute',
+          top: 'calc(20px + env(safe-area-inset-top, 0px))',
+          left: '50%',
+          transform: 'translateX(-50%)',
+          padding: '8px 16px',
+          borderRadius: 22,
+          background: 'rgba(18, 24, 38, 0.65)',
+          backdropFilter: 'blur(14px)',
+          WebkitBackdropFilter: 'blur(14px)',
+          border: '1px solid rgba(255,255,255,0.10)',
+          color: '#ffffff',
+          fontSize: 14,
+          fontWeight: 600,
+          letterSpacing: 0.3,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 8,
+          pointerEvents: 'none',
+          boxShadow: '0 8px 24px rgba(0,0,0,0.35)',
+          animation: 'sd-overlay-in 0.5s ease-out both',
+        }}
+      >
+        <Icon name="star" size={16} color="#f5d878" />
+        <span>{fragments.toLocaleString()} fragments</span>
+      </div>
+
+      {/* Bottom button stack */}
+      <div
+        style={{
+          position: 'absolute',
+          bottom: 'calc(36px + env(safe-area-inset-bottom, 0px))',
+          left: 0,
+          right: 0,
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          gap: 14,
+          zIndex: 5,
+          animation: 'sd-overlay-in 0.6s ease-out 0.15s both',
+        }}
+        onTouchStart={stopProp}
+        onMouseDown={stopProp}
+      >
         <button
-          onTouchStart={toggleMute}
-          onMouseDown={toggleMute}
-          aria-label="Toggle sound"
+          className="sd-btn sd-btn-primary"
+          onClick={onPlay}
+          aria-label="Play"
           style={{
-            position: 'absolute',
-            right: 12,
-            bottom: 12,
-            width: 40,
-            height: 40,
-            borderRadius: 20,
-            border: '1px solid rgba(255,255,255,0.15)',
-            background: 'rgba(10, 15, 25, 0.55)',
+            padding: '18px 56px',
+            borderRadius: 36,
+            border: '1px solid rgba(255,255,255,0.22)',
+            background: 'linear-gradient(180deg, rgba(255,255,255,0.18) 0%, rgba(255,255,255,0.06) 100%)',
+            backdropFilter: 'blur(16px)',
+            WebkitBackdropFilter: 'blur(16px)',
             color: '#ffffff',
-            fontSize: 18,
+            fontSize: 20,
+            fontWeight: 600,
+            letterSpacing: 2,
             display: 'flex',
             alignItems: 'center',
-            justifyContent: 'center',
+            gap: 12,
             cursor: 'pointer',
-            WebkitTapHighlightColor: 'transparent',
-            userSelect: 'none',
-            WebkitUserSelect: 'none',
-            touchAction: 'none',
-            padding: 0,
             outline: 'none',
-            backdropFilter: 'blur(10px)',
-            WebkitBackdropFilter: 'blur(10px)',
           }}
         >
-          {muted ? '🔇' : '🔊'}
+          <Icon name="play" size={18} />
+          PLAY
         </button>
+        <div style={{ display: 'flex', gap: 14 }}>
+          {[
+            { id: 'ships', icon: 'ship', label: 'Ships' },
+            { id: 'leaderboard', icon: 'trophy', label: 'Ranks' },
+            { id: 'settings', icon: 'gear', label: 'Settings' },
+          ].map((b) => (
+            <button
+              key={b.id}
+              className="sd-btn"
+              onClick={() => onOpenPanel(b.id)}
+              aria-label={b.label}
+              style={{
+                width: 56,
+                height: 56,
+                borderRadius: 28,
+                border: '1px solid rgba(255,255,255,0.12)',
+                background: 'rgba(18, 24, 38, 0.55)',
+                backdropFilter: 'blur(14px)',
+                WebkitBackdropFilter: 'blur(14px)',
+                color: '#ffffff',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                cursor: 'pointer',
+                outline: 'none',
+                boxShadow: '0 8px 24px rgba(0,0,0,0.35)',
+              }}
+            >
+              <Icon name={b.icon} size={22} />
+            </button>
+          ))}
+        </div>
+      </div>
+    </>
+  );
+}
+
+function DeathOverlay({ score, planet, onRetry, onShare, onLeaderboard }) {
+  return (
+    <div
+      style={{
+        position: 'absolute',
+        bottom: 36,
+        left: 0,
+        right: 0,
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        gap: 12,
+        zIndex: 5,
+        animation: 'sd-overlay-in 0.45s ease-out 0.2s both',
+      }}
+      onTouchStart={stopProp}
+      onMouseDown={stopProp}
+    >
+      <button
+        className="sd-btn"
+        onClick={onRetry}
+        style={{
+          padding: '16px 48px',
+          borderRadius: 32,
+          border: '1px solid rgba(255,255,255,0.18)',
+          background: 'linear-gradient(180deg, rgba(255,255,255,0.14) 0%, rgba(255,255,255,0.05) 100%)',
+          backdropFilter: 'blur(16px)',
+          WebkitBackdropFilter: 'blur(16px)',
+          color: '#ffffff',
+          fontSize: 17,
+          fontWeight: 600,
+          letterSpacing: 1.5,
+          cursor: 'pointer',
+          outline: 'none',
+          boxShadow: '0 14px 36px rgba(0,0,0,0.45)',
+        }}
+      >
+        TRY AGAIN
+      </button>
+      <div style={{ display: 'flex', gap: 12 }}>
+        <button
+          className="sd-btn"
+          onClick={() => onShare(score, planet)}
+          aria-label="Share score"
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+            padding: '10px 18px',
+            borderRadius: 22,
+            border: '1px solid rgba(255,255,255,0.12)',
+            background: 'rgba(18, 24, 38, 0.55)',
+            backdropFilter: 'blur(14px)',
+            WebkitBackdropFilter: 'blur(14px)',
+            color: '#ffffff',
+            fontSize: 13,
+            fontWeight: 500,
+            cursor: 'pointer',
+            outline: 'none',
+          }}
+        >
+          <Icon name="share" size={16} />
+          Share
+        </button>
+        <button
+          className="sd-btn"
+          onClick={onLeaderboard}
+          aria-label="Open leaderboard"
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+            padding: '10px 18px',
+            borderRadius: 22,
+            border: '1px solid rgba(255,255,255,0.12)',
+            background: 'rgba(18, 24, 38, 0.55)',
+            backdropFilter: 'blur(14px)',
+            WebkitBackdropFilter: 'blur(14px)',
+            color: '#ffffff',
+            fontSize: 13,
+            fontWeight: 500,
+            cursor: 'pointer',
+            outline: 'none',
+          }}
+        >
+          <Icon name="trophy" size={16} />
+          Ranks
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function InitialsModal({ entry, initials, onChange, onSubmit }) {
+  const handleChange = (idx, ch) => {
+    const arr = initials.padEnd(3, 'A').split('');
+    const v = (ch || 'A').toUpperCase().replace(/[^A-Z]/g, '');
+    arr[idx] = v || 'A';
+    onChange(arr.join('').slice(0, 3));
+  };
+  return (
+    <div style={overlayBackdropStyle} onTouchStart={stopProp} onMouseDown={stopProp}>
+      <div
+        style={{
+          ...cardStyle,
+          width: 'min(360px, calc(100% - 48px))',
+          padding: '28px 24px',
+          textAlign: 'center',
+          animation: 'sd-panel-in 0.22s ease-out',
+        }}
+      >
+        <div style={{ fontSize: 12, letterSpacing: 1.6, opacity: 0.65, fontWeight: 500 }}>
+          NEW HIGH SCORE
+        </div>
+        <div style={{ fontSize: 48, fontWeight: 300, margin: '8px 0 4px' }}>{entry.score}</div>
+        <div style={{ fontSize: 13, opacity: 0.65, marginBottom: 22 }}>Reached {entry.planet}</div>
+        <div style={{ display: 'flex', justifyContent: 'center', gap: 10, marginBottom: 22 }}>
+          {[0, 1, 2].map((i) => (
+            <input
+              key={i}
+              type="text"
+              maxLength={1}
+              value={initials.charAt(i) || ''}
+              onChange={(e) => handleChange(i, e.target.value)}
+              style={{
+                width: 56,
+                height: 64,
+                fontSize: 32,
+                fontWeight: 600,
+                textAlign: 'center',
+                background: 'rgba(255,255,255,0.06)',
+                border: '1px solid rgba(255,255,255,0.18)',
+                borderRadius: 14,
+                color: '#ffffff',
+                outline: 'none',
+                fontFamily: 'inherit',
+              }}
+            />
+          ))}
+        </div>
+        <button
+          className="sd-btn"
+          onClick={onSubmit}
+          style={{
+            width: '100%',
+            padding: '14px 0',
+            borderRadius: 22,
+            border: '1px solid rgba(255,255,255,0.18)',
+            background: 'linear-gradient(180deg, rgba(255,255,255,0.16), rgba(255,255,255,0.05))',
+            color: '#ffffff',
+            fontSize: 15,
+            fontWeight: 600,
+            letterSpacing: 1.2,
+            cursor: 'pointer',
+            outline: 'none',
+          }}
+        >
+          SAVE
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function PanelHeader({ title, onClose }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18 }}>
+      <div style={{ fontSize: 18, fontWeight: 600, letterSpacing: 0.5 }}>{title}</div>
+      <button
+        className="sd-btn"
+        onClick={onClose}
+        aria-label="Close"
+        style={{
+          width: 36, height: 36, borderRadius: 18,
+          border: '1px solid rgba(255,255,255,0.14)',
+          background: 'rgba(255,255,255,0.06)',
+          color: '#ffffff', cursor: 'pointer', outline: 'none',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+        }}
+      >
+        <Icon name="close" size={18} />
+      </button>
+    </div>
+  );
+}
+
+function ShipSilhouette({ design, color, size = 64 }) {
+  // Lightweight static SVG approximation of each ship for menu cards.
+  const c = color || SHIP_COLORS[0];
+  const main = c.main, mid = c.mid, shadow = c.shadow;
+  if (design === 'wedge') {
+    return (
+      <svg viewBox="0 0 64 32" width={size} height={size * 0.5}>
+        <defs>
+          <linearGradient id="g-wedge" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor={main} />
+            <stop offset="55%" stopColor={mid} />
+            <stop offset="100%" stopColor={shadow} />
+          </linearGradient>
+        </defs>
+        <polygon points="6,16 22,28 22,4" fill="rgba(255,200,140,0.8)" />
+        <polygon points="14,28 14,4 56,16" fill="url(#g-wedge)" />
+        <ellipse cx="44" cy="14" rx="6" ry="2" fill="rgba(190,140,220,0.85)" />
+      </svg>
+    );
+  }
+  if (design === 'orb') {
+    return (
+      <svg viewBox="0 0 64 32" width={size} height={size * 0.5}>
+        <defs>
+          <radialGradient id="g-orb" cx="0.4" cy="0.35">
+            <stop offset="0%" stopColor={main} />
+            <stop offset="65%" stopColor={mid} />
+            <stop offset="100%" stopColor={shadow} />
+          </radialGradient>
+        </defs>
+        <polygon points="14,16 22,12 22,20" fill="rgba(255,200,140,0.8)" />
+        <ellipse cx="40" cy="16" rx="18" ry="6" fill="none" stroke="rgba(220,190,255,0.6)" strokeWidth="1.5" />
+        <circle cx="40" cy="16" r="11" fill="url(#g-orb)" />
+        <circle cx="44" cy="14" r="3.5" fill="rgba(190,140,220,0.85)" />
+      </svg>
+    );
+  }
+  if (design === 'comet') {
+    return (
+      <svg viewBox="0 0 64 32" width={size} height={size * 0.5}>
+        <defs>
+          <linearGradient id="g-comet" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor={main} />
+            <stop offset="55%" stopColor={mid} />
+            <stop offset="100%" stopColor={shadow} />
+          </linearGradient>
+          <linearGradient id="g-flame" x1="0" y1="0" x2="1" y2="0">
+            <stop offset="0%" stopColor="rgba(255,255,255,0)" />
+            <stop offset="60%" stopColor="rgba(255,200,140,0.6)" />
+            <stop offset="100%" stopColor="rgba(255,230,180,1)" />
+          </linearGradient>
+        </defs>
+        <path d="M2 16 Q14 8 32 13 Q40 14 50 16 Q40 18 32 19 Q14 24 2 16 Z" fill="url(#g-flame)" />
+        <ellipse cx="48" cy="16" rx="10" ry="6" fill="url(#g-comet)" />
+        <circle cx="51" cy="15" r="2.4" fill="rgba(190,140,220,0.9)" />
+      </svg>
+    );
+  }
+  return (
+    // Voyager — delta wing
+    <svg viewBox="0 0 64 32" width={size} height={size * 0.5}>
+      <defs>
+        <linearGradient id="g-voy" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor={main} />
+          <stop offset="55%" stopColor={mid} />
+          <stop offset="100%" stopColor={shadow} />
+        </linearGradient>
+      </defs>
+      <polygon points="10,16 16,12 16,20" fill="rgba(255,200,140,0.8)" />
+      <polygon points="22,16 12,4 26,14" fill={shadow} />
+      <polygon points="22,16 12,28 26,18" fill={shadow} />
+      <path d="M52 16 Q42 8 30 11 Q22 13 18 16 Q22 19 30 21 Q42 24 52 16 Z" fill="url(#g-voy)" />
+      <ellipse cx="36" cy="14" rx="5" ry="2.8" fill="rgba(190,140,220,0.85)" />
+    </svg>
+  );
+}
+
+function ShipsPanel({ fragments, ownedShips, ownedColors, selectedShip, selectedColor, onSelectShip, onSelectColor, onUnlockShip, onUnlockColor, onClose }) {
+  const currentColor = SHIP_COLORS.find((c) => c.id === selectedColor) || SHIP_COLORS[0];
+  return (
+    <div style={overlayBackdropStyle} onTouchStart={stopProp} onMouseDown={stopProp} onClick={onClose}>
+      <div
+        onClick={stopProp}
+        style={{
+          ...cardStyle,
+          width: 'min(440px, calc(100% - 32px))',
+          maxHeight: 'calc(100% - 64px)',
+          padding: '20px 22px',
+          display: 'flex',
+          flexDirection: 'column',
+          animation: 'sd-panel-in 0.22s ease-out',
+        }}
+      >
+        <PanelHeader title="Ships" onClose={onClose} />
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, opacity: 0.7, marginBottom: 14 }}>
+          <Icon name="star" size={14} color="#f5d878" />
+          <span>{fragments.toLocaleString()} fragments</span>
+        </div>
+        <div style={{ overflowY: 'auto', flex: 1, paddingRight: 4 }}>
+          {/* Ship designs */}
+          <div style={{ fontSize: 11, opacity: 0.55, letterSpacing: 1.4, marginBottom: 10 }}>DESIGN</div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 22 }}>
+            {SHIP_DESIGNS.map((d) => {
+              const owned = ownedShips.includes(d.id);
+              const sel = d.id === selectedShip;
+              const canAfford = fragments >= d.cost;
+              return (
+                <button
+                  key={d.id}
+                  className="sd-btn"
+                  onClick={() => owned ? onSelectShip(d.id) : (canAfford ? onUnlockShip(d.id) : null)}
+                  disabled={!owned && !canAfford}
+                  style={{
+                    background: sel ? 'rgba(255,255,255,0.10)' : 'rgba(255,255,255,0.04)',
+                    border: `1px solid ${sel ? 'rgba(255,255,255,0.35)' : 'rgba(255,255,255,0.10)'}`,
+                    borderRadius: 18,
+                    padding: '14px 12px',
+                    color: '#ffffff',
+                    cursor: (owned || canAfford) ? 'pointer' : 'not-allowed',
+                    outline: 'none',
+                    textAlign: 'left',
+                    opacity: (!owned && !canAfford) ? 0.5 : 1,
+                  }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 6 }}>
+                    <ShipSilhouette design={d.id} color={currentColor} size={88} />
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <div style={{ fontSize: 14, fontWeight: 600 }}>{d.name}</div>
+                    {owned
+                      ? (sel
+                        ? <span style={{ color: '#a8e8c8' }}><Icon name="check" size={16} color="#a8e8c8" /></span>
+                        : <span style={{ fontSize: 11, opacity: 0.55 }}>Owned</span>)
+                      : <span style={{ fontSize: 12, fontWeight: 500, display: 'flex', alignItems: 'center', gap: 4, opacity: canAfford ? 1 : 0.6 }}>
+                          <Icon name="star" size={12} color="#f5d878" />
+                          {d.cost}
+                        </span>}
+                  </div>
+                  <div style={{ fontSize: 11, opacity: 0.55, marginTop: 4 }}>{d.blurb}</div>
+                </button>
+              );
+            })}
+          </div>
+          {/* Colors */}
+          <div style={{ fontSize: 11, opacity: 0.55, letterSpacing: 1.4, marginBottom: 10 }}>COLOR</div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginBottom: 8 }}>
+            {SHIP_COLORS.map((c) => {
+              const owned = ownedColors.includes(c.id);
+              const sel = c.id === selectedColor;
+              const canAfford = fragments >= c.cost;
+              return (
+                <button
+                  key={c.id}
+                  className="sd-btn"
+                  onClick={() => owned ? onSelectColor(c.id) : (canAfford ? onUnlockColor(c.id) : null)}
+                  disabled={!owned && !canAfford}
+                  style={{
+                    width: 64,
+                    background: sel ? 'rgba(255,255,255,0.10)' : 'rgba(255,255,255,0.04)',
+                    border: `1px solid ${sel ? 'rgba(255,255,255,0.35)' : 'rgba(255,255,255,0.10)'}`,
+                    borderRadius: 14,
+                    padding: '10px 6px',
+                    cursor: (owned || canAfford) ? 'pointer' : 'not-allowed',
+                    outline: 'none',
+                    color: '#ffffff',
+                    opacity: (!owned && !canAfford) ? 0.5 : 1,
+                  }}
+                >
+                  <div style={{
+                    width: 32, height: 32, borderRadius: 16, margin: '0 auto 6px',
+                    background: `linear-gradient(135deg, ${c.main}, ${c.mid} 55%, ${c.shadow})`,
+                    border: '1px solid rgba(255,255,255,0.15)',
+                    boxShadow: 'inset 0 1px 2px rgba(255,255,255,0.4)',
+                  }} />
+                  <div style={{ fontSize: 10, fontWeight: 500, textAlign: 'center' }}>{c.name}</div>
+                  <div style={{ fontSize: 9, opacity: 0.6, textAlign: 'center', marginTop: 2 }}>
+                    {owned
+                      ? (sel ? '✓ selected' : 'owned')
+                      : `★ ${c.cost}`}
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function LeaderboardPanel({ entries, highlightId, onShare, onClose }) {
+  return (
+    <div style={overlayBackdropStyle} onTouchStart={stopProp} onMouseDown={stopProp} onClick={onClose}>
+      <div
+        onClick={stopProp}
+        style={{
+          ...cardStyle,
+          width: 'min(420px, calc(100% - 32px))',
+          maxHeight: 'calc(100% - 64px)',
+          padding: '20px 22px',
+          display: 'flex',
+          flexDirection: 'column',
+          animation: 'sd-panel-in 0.22s ease-out',
+        }}
+      >
+        <PanelHeader title="Leaderboard" onClose={onClose} />
+        {entries.length === 0 ? (
+          <div style={{ fontSize: 13, opacity: 0.65, padding: '40px 0', textAlign: 'center' }}>
+            No runs yet — fly far to claim the top spot.
+          </div>
+        ) : (
+          <div style={{ overflowY: 'auto', flex: 1 }}>
+            {entries.map((e, i) => (
+              <div
+                key={e.id}
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: '32px 64px 1fr auto',
+                  alignItems: 'center',
+                  gap: 12,
+                  padding: '10px 8px',
+                  borderBottom: '1px solid rgba(255,255,255,0.06)',
+                  fontSize: 13,
+                  background: e.id === highlightId ? 'rgba(168, 232, 200, 0.10)' : 'transparent',
+                  borderRadius: e.id === highlightId ? 10 : 0,
+                }}
+              >
+                <div style={{ opacity: 0.5, fontWeight: 500 }}>{i + 1}</div>
+                <div style={{ fontWeight: 600, fontSize: 15, letterSpacing: 1.2 }}>{e.initials}</div>
+                <div style={{ display: 'flex', flexDirection: 'column' }}>
+                  <div style={{ fontSize: 11, opacity: 0.55 }}>{e.planet} · {e.date}</div>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <div style={{ fontWeight: 600, fontSize: 16 }}>{e.score}</div>
+                  <button
+                    className="sd-btn"
+                    onClick={() => onShare(e.score, e.planet)}
+                    aria-label="Share entry"
+                    style={{
+                      width: 28, height: 28, borderRadius: 14,
+                      border: '1px solid rgba(255,255,255,0.10)',
+                      background: 'rgba(255,255,255,0.05)',
+                      color: '#ffffff', cursor: 'pointer', outline: 'none',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    }}
+                  >
+                    <Icon name="share" size={13} />
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function ToggleRow({ label, value, onChange, sub }) {
+  return (
+    <button
+      className="sd-btn"
+      onClick={() => onChange(!value)}
+      style={{
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        width: '100%', padding: '14px 16px', borderRadius: 16,
+        background: 'rgba(255,255,255,0.04)',
+        border: '1px solid rgba(255,255,255,0.08)',
+        color: '#ffffff', cursor: 'pointer', outline: 'none',
+        marginBottom: 8, fontFamily: 'inherit',
+      }}
+    >
+      <div style={{ textAlign: 'left' }}>
+        <div style={{ fontSize: 14, fontWeight: 500 }}>{label}</div>
+        {sub && <div style={{ fontSize: 11, opacity: 0.55, marginTop: 2 }}>{sub}</div>}
+      </div>
+      <div
+        style={{
+          width: 44, height: 26, borderRadius: 13,
+          background: value ? 'rgba(168, 232, 200, 0.65)' : 'rgba(255,255,255,0.10)',
+          position: 'relative', transition: 'background 0.18s ease',
+        }}
+      >
+        <div style={{
+          position: 'absolute', top: 3, left: value ? 21 : 3,
+          width: 20, height: 20, borderRadius: 10,
+          background: '#ffffff', transition: 'left 0.18s ease',
+          boxShadow: '0 2px 6px rgba(0,0,0,0.3)',
+        }} />
+      </div>
+    </button>
+  );
+}
+
+function SettingsPanel({ muted, vibration, colorBlind, onMutedChange, onVibrationChange, onColorBlindChange, onClose }) {
+  return (
+    <div style={overlayBackdropStyle} onTouchStart={stopProp} onMouseDown={stopProp} onClick={onClose}>
+      <div
+        onClick={stopProp}
+        style={{
+          ...cardStyle,
+          width: 'min(360px, calc(100% - 32px))',
+          padding: '20px 22px',
+          animation: 'sd-panel-in 0.22s ease-out',
+        }}
+      >
+        <PanelHeader title="Settings" onClose={onClose} />
+        <ToggleRow
+          label="Sound"
+          sub="Music and effects"
+          value={!muted}
+          onChange={(v) => onMutedChange(!v)}
+        />
+        <ToggleRow
+          label="Vibration"
+          sub="Haptic feedback on death (mobile)"
+          value={vibration}
+          onChange={onVibrationChange}
+        />
+        <ToggleRow
+          label="Color blind mode"
+          sub="Coming soon"
+          value={colorBlind}
+          onChange={onColorBlindChange}
+        />
+        <div style={{ fontSize: 11, opacity: 0.45, textAlign: 'center', marginTop: 14 }}>
+          Stellar Drift · v0.3
+        </div>
       </div>
     </div>
   );
