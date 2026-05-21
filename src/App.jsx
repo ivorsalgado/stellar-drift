@@ -210,10 +210,10 @@ const getWidthScale = (w) => w / BASE_W;
 // returns the scaled values used by the running game. Frame-count fields (spawn
 // intervals) and proportional fields (shipX) are not scaled.
 const PHYSICS_BASE = {
-  gravity: 0.18,
+  gravity: 0.26,
   impulse: -5.0,
   maxRiseSpeed: -8.5,
-  maxFallSpeed: 7.0,
+  maxFallSpeed: 8.0,
   baseSpeed: 5.6,
   speedPerObstacle: 0.15,
   startGap: 195,
