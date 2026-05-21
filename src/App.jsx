@@ -2717,14 +2717,16 @@ export default function StellarDrift() {
 
       // ── COMPOSITE TO MAIN CANVAS WITH BLOOM ──
       ctx.clearRect(0, 0, w, h);
-      // Base
-      ctx.drawImage(off, 0, 0);
+      // Base. Destination size (w, h) is required: the offscreen canvas is
+      // sized w*dpr x h*dpr in intrinsic pixels, and the main ctx already
+      // has a dpr transform applied — omitting the size double-scales by dpr.
+      ctx.drawImage(off, 0, 0, w, h);
       // Bloom: blurred copy at low opacity
       ctx.save();
       ctx.globalAlpha = 0.40;
       ctx.globalCompositeOperation = 'lighter';
       ctx.filter = `blur(${8 * s}px)`;
-      ctx.drawImage(off, 0, 0);
+      ctx.drawImage(off, 0, 0, w, h);
       ctx.filter = 'none';
       ctx.globalCompositeOperation = 'source-over';
       ctx.restore();
