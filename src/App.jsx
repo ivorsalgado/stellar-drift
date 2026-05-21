@@ -211,8 +211,8 @@ const getWidthScale = (w) => w / BASE_W;
 // intervals) and proportional fields (shipX) are not scaled.
 const PHYSICS_BASE = {
   gravity: 0.32,
-  impulse: -5.0,
-  maxRiseSpeed: -8.5,
+  impulse: -6.6,
+  maxRiseSpeed: -10.0,
   maxFallSpeed: 8.5,
   baseSpeed: 5.6,
   speedPerObstacle: 0.15,
