@@ -2442,9 +2442,11 @@ export default function StellarDrift() {
       const planet = PLANETS[gs.planetIdx];
       const phys = gs.phys;
       const s = phys.scale;
-      // Difficulty multiplier — unitless. Tracks total run difficulty.
-      const speedMul = 1 + (gs.score * 0.025 + gs.planetIdx * 0.10);
-      const moveSpeed = phys.baseSpeed * speedMul;
+      // Linear speed ramp: starts at baseSpeed, climbs +0.1 ref-units every
+      // two obstacles. speedMul is the resulting ratio, displayed as "1.0×" etc.
+      const speedBonus = Math.floor(gs.score / 2) * 0.1 * phys.widthScale;
+      const moveSpeed = phys.baseSpeed + speedBonus;
+      const speedMul = moveSpeed / phys.baseSpeed;
 
       // Apply planet transition crossfade
       if (gs.planetTransition < 1) {
@@ -3038,8 +3040,17 @@ export default function StellarDrift() {
 
   // Block in-game taps from triggering while a menu panel or initials modal is open
   const tapsBlocked = openPanel !== null || pendingEntry !== null || view === 'start';
+  // Mobile browsers fire a synthetic mousedown after every touchstart, which
+  // would otherwise flap twice per tap. Ignore mousedown shortly after a touch.
+  const lastTouchRef = useRef(0);
   const onCanvasTap = useCallback((e) => {
     if (tapsBlocked) return;
+    const now = Date.now();
+    if (e.type === 'mousedown') {
+      if (now - lastTouchRef.current < 600) return;
+    } else if (e.type === 'touchstart') {
+      lastTouchRef.current = now;
+    }
     e.preventDefault();
     handleInput();
   }, [tapsBlocked, handleInput]);
