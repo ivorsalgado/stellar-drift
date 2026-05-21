@@ -223,7 +223,7 @@ const PHYSICS_BASE = {
   spawnShrinkPerPlanet: 4,
   minSpawnInterval: 55,
   shipX: 0.28,
-  shipRadius: 16,
+  shipRadius: 20,
   columnWidth: 70,
   lateralTiltInfluence: 0.16,
   lateralDamping: 0.93,
@@ -1686,6 +1686,10 @@ export default function StellarDrift() {
     }
     ctx.restore();
 
+    // Bump ship body up by 30% — the original geometry felt cramped against
+    // obstacle gaps. Applied after the trail so the trail keeps its size.
+    ctx.scale(1.3, 1.3);
+
     const drawFlame = (baseX, halfH, len, splitTwin) => {
       const passes = splitTwin ? [-1, 1] : [0];
       passes.forEach((k) => {
@@ -1930,25 +1934,35 @@ export default function StellarDrift() {
   }, []);
 
   const drawFragments = useCallback((ctx, fragments, planet, s) => {
+    // Fragments use a fixed warm-gold body and cyan outer glow so they read
+    // clearly against every planet's accent (which tints column edges).
+    const bodyColor = '#ffd84a';
+    const haloColor = '#7fe0ff';
     fragments.forEach((f) => {
       if (f.collected) return;
-      const accent = planet.accent;
       ctx.save();
       ctx.translate(f.x, f.y + Math.sin(f.bounce) * 3 * s);
-      // Soft pulsing halo
+      // Pulsing cyan outer halo (stronger than before so it pops against pastel skies)
       const pulse = 0.85 + Math.sin(f.bounce * 1.3) * 0.15;
-      const haloR = 20 * s * pulse;
+      const haloR = 26 * s * pulse;
       const halo = ctx.createRadialGradient(0, 0, 0, 0, 0, haloR);
-      halo.addColorStop(0, `${accent}80`);
-      halo.addColorStop(0.5, `${accent}40`);
-      halo.addColorStop(1, `${accent}00`);
+      halo.addColorStop(0, `${haloColor}cc`);
+      halo.addColorStop(0.45, `${haloColor}55`);
+      halo.addColorStop(1, `${haloColor}00`);
       ctx.fillStyle = halo;
       ctx.beginPath(); ctx.arc(0, 0, haloR, 0, Math.PI * 2); ctx.fill();
+      // Inner warm glow underneath the crystal
+      const innerR = 14 * s * pulse;
+      const innerGlow = ctx.createRadialGradient(0, 0, 0, 0, 0, innerR);
+      innerGlow.addColorStop(0, `${bodyColor}aa`);
+      innerGlow.addColorStop(1, `${bodyColor}00`);
+      ctx.fillStyle = innerGlow;
+      ctx.beginPath(); ctx.arc(0, 0, innerR, 0, Math.PI * 2); ctx.fill();
       // Crystal — rotated diamond with facets
       ctx.rotate(f.rot);
-      const sz = 9 * s;
-      // Back facet (darker accent)
-      ctx.fillStyle = accent;
+      const sz = 12 * s;
+      // Back facet (warm gold)
+      ctx.fillStyle = bodyColor;
       ctx.beginPath();
       ctx.moveTo(0, -sz);
       ctx.lineTo(sz * 0.55, 0);
@@ -1956,6 +1970,16 @@ export default function StellarDrift() {
       ctx.lineTo(-sz * 0.55, 0);
       ctx.closePath();
       ctx.fill();
+      // Dark amber outline for definition against light skies
+      ctx.strokeStyle = '#9a6a18';
+      ctx.lineWidth = 1.2 * s;
+      ctx.beginPath();
+      ctx.moveTo(0, -sz);
+      ctx.lineTo(sz * 0.55, 0);
+      ctx.lineTo(0, sz);
+      ctx.lineTo(-sz * 0.55, 0);
+      ctx.closePath();
+      ctx.stroke();
       // Lit front facet (bright white)
       ctx.fillStyle = '#ffffff';
       ctx.beginPath();
@@ -1966,9 +1990,9 @@ export default function StellarDrift() {
       ctx.closePath();
       ctx.fill();
       // Tiny sparkle in the corner
-      ctx.fillStyle = 'rgba(255,255,255,0.85)';
+      ctx.fillStyle = 'rgba(255,255,255,0.95)';
       ctx.beginPath();
-      ctx.arc(-sz * 0.10, -sz * 0.45, sz * 0.10, 0, Math.PI * 2);
+      ctx.arc(-sz * 0.10, -sz * 0.45, sz * 0.12, 0, Math.PI * 2);
       ctx.fill();
       ctx.restore();
     });
