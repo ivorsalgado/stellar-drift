@@ -210,10 +210,10 @@ const getWidthScale = (w) => w / BASE_W;
 // returns the scaled values used by the running game. Frame-count fields (spawn
 // intervals) and proportional fields (shipX) are not scaled.
 const PHYSICS_BASE = {
-  gravity: 0.26,
+  gravity: 0.32,
   impulse: -5.0,
   maxRiseSpeed: -8.5,
-  maxFallSpeed: 8.0,
+  maxFallSpeed: 8.5,
   baseSpeed: 5.6,
   speedPerObstacle: 0.15,
   startGap: 195,
@@ -2503,7 +2503,9 @@ export default function StellarDrift() {
     gs.deathOverlay = 0;
     gs.scoreFlash = 0;
     gs.ratedThisRun = false;
-    setMusicLayer(0);
+    // Start the run with the full backing track (pad + kick) so the player
+    // hears music immediately. Layer 2 (hat + lead) still kicks in at score 10.
+    setMusicLayer(1);
   }, [setMusicLayer]);
 
   // Return to the start menu from any state — resets the run but stays at
@@ -2640,9 +2642,8 @@ export default function StellarDrift() {
                 });
               }
             }
-            // Music layer progression
-            if (gs.score === 10) setMusicLayer(1);
-            if (gs.score === 25) setMusicLayer(2);
+            // Music layer progression — starts at layer 1, hat+lead joins at 10.
+            if (gs.score === 10) setMusicLayer(2);
             // Planet transition
             if (gs.obstaclesInPlanet >= 15 && gs.planetIdx < PLANETS.length - 1) {
               gs.prevPlanetIdx = gs.planetIdx;
