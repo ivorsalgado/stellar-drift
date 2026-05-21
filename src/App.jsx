@@ -210,11 +210,11 @@ const getWidthScale = (w) => w / BASE_W;
 // returns the scaled values used by the running game. Frame-count fields (spawn
 // intervals) and proportional fields (shipX) are not scaled.
 const PHYSICS_BASE = {
-  gravity: 0.22,
+  gravity: 0.18,
   impulse: -5.0,
   maxRiseSpeed: -8.5,
-  maxFallSpeed: 7.5,
-  baseSpeed: 4.5,
+  maxFallSpeed: 7.0,
+  baseSpeed: 5.6,
   speedPerObstacle: 0.15,
   startGap: 195,
   gapShrinkPerPlanet: 8,
@@ -223,7 +223,7 @@ const PHYSICS_BASE = {
   spawnShrinkPerPlanet: 4,
   minSpawnInterval: 55,
   shipX: 0.28,
-  shipRadius: 20,
+  shipRadius: 22,
   columnWidth: 70,
   lateralTiltInfluence: 0.16,
   lateralDamping: 0.93,
@@ -1686,9 +1686,10 @@ export default function StellarDrift() {
     }
     ctx.restore();
 
-    // Bump ship body up by 30% — the original geometry felt cramped against
-    // obstacle gaps. Applied after the trail so the trail keeps its size.
-    ctx.scale(1.3, 1.3);
+    // Scale ship body up — original geometry felt cramped against obstacle
+    // gaps. Applied after the trail so the trail keeps its size. shipRadius
+    // is tuned to match this visual scale.
+    ctx.scale(1.4, 1.4);
 
     const drawFlame = (baseX, halfH, len, splitTwin) => {
       const passes = splitTwin ? [-1, 1] : [0];
@@ -1934,66 +1935,131 @@ export default function StellarDrift() {
   }, []);
 
   const drawFragments = useCallback((ctx, fragments, planet, s) => {
-    // Fragments use a fixed warm-gold body and cyan outer glow so they read
-    // clearly against every planet's accent (which tints column edges).
-    const bodyColor = '#ffd84a';
-    const haloColor = '#7fe0ff';
+    // Faceted gemstone with cyan halo and slow-rotating sparkle star.
+    // Colors are fixed (not planet-tinted) so the crystal reads clearly on
+    // every sky — planet accents already colorize column edges.
+    const FACET_TOP    = '#fff3b0'; // bright lit facet
+    const FACET_MAIN   = '#ffd84a'; // warm gold body
+    const FACET_LEFT   = '#f0a920'; // mid-tone left facet
+    const FACET_RIGHT  = '#b97810'; // deep shadow right facet
+    const FACET_OUTLINE = '#5a3a08';
+    const HALO_OUTER   = '#7fe0ff';
+    const HALO_INNER   = '#ffe6a0';
     fragments.forEach((f) => {
       if (f.collected) return;
       ctx.save();
       ctx.translate(f.x, f.y + Math.sin(f.bounce) * 3 * s);
-      // Pulsing cyan outer halo (stronger than before so it pops against pastel skies)
-      const pulse = 0.85 + Math.sin(f.bounce * 1.3) * 0.15;
-      const haloR = 26 * s * pulse;
+
+      const pulse = 0.88 + Math.sin(f.bounce * 1.3) * 0.12;
+
+      // Outer cyan halo
+      const haloR = 28 * s * pulse;
       const halo = ctx.createRadialGradient(0, 0, 0, 0, 0, haloR);
-      halo.addColorStop(0, `${haloColor}cc`);
-      halo.addColorStop(0.45, `${haloColor}55`);
-      halo.addColorStop(1, `${haloColor}00`);
+      halo.addColorStop(0, `${HALO_INNER}aa`);
+      halo.addColorStop(0.35, `${HALO_OUTER}55`);
+      halo.addColorStop(0.75, `${HALO_OUTER}1a`);
+      halo.addColorStop(1, `${HALO_OUTER}00`);
       ctx.fillStyle = halo;
       ctx.beginPath(); ctx.arc(0, 0, haloR, 0, Math.PI * 2); ctx.fill();
-      // Inner warm glow underneath the crystal
-      const innerR = 14 * s * pulse;
-      const innerGlow = ctx.createRadialGradient(0, 0, 0, 0, 0, innerR);
-      innerGlow.addColorStop(0, `${bodyColor}aa`);
-      innerGlow.addColorStop(1, `${bodyColor}00`);
-      ctx.fillStyle = innerGlow;
-      ctx.beginPath(); ctx.arc(0, 0, innerR, 0, Math.PI * 2); ctx.fill();
-      // Crystal — rotated diamond with facets
-      ctx.rotate(f.rot);
-      const sz = 12 * s;
-      // Back facet (warm gold)
-      ctx.fillStyle = bodyColor;
+
+      // Sparkle star rays — counter-rotates, gently pulses
+      ctx.save();
+      ctx.rotate(-f.rot * 0.8);
+      const rayLen = 22 * s * pulse;
+      const rayAlpha = 0.55 + Math.sin(f.bounce * 1.7) * 0.25;
+      ctx.strokeStyle = `rgba(255, 248, 210, ${rayAlpha})`;
+      ctx.lineCap = 'round';
+      // Long horizontal/vertical rays (4-point star)
+      ctx.lineWidth = 1.6 * s;
       ctx.beginPath();
-      ctx.moveTo(0, -sz);
-      ctx.lineTo(sz * 0.55, 0);
-      ctx.lineTo(0, sz);
-      ctx.lineTo(-sz * 0.55, 0);
+      ctx.moveTo(-rayLen, 0); ctx.lineTo(rayLen, 0);
+      ctx.moveTo(0, -rayLen); ctx.lineTo(0, rayLen);
+      ctx.stroke();
+      // Short diagonal rays (8-point sparkle)
+      ctx.lineWidth = 1.0 * s;
+      const d = rayLen * 0.55;
+      ctx.beginPath();
+      ctx.moveTo(-d, -d); ctx.lineTo(d, d);
+      ctx.moveTo(-d, d);  ctx.lineTo(d, -d);
+      ctx.stroke();
+      ctx.restore();
+
+      // Crystal body — slowly rotating faceted gem
+      ctx.rotate(f.rot);
+      const sz = 13 * s;
+
+      // Outline / silhouette (drawn first, slightly larger to create a clean border)
+      ctx.fillStyle = FACET_OUTLINE;
+      ctx.beginPath();
+      ctx.moveTo(0, -sz * 1.05);
+      ctx.lineTo(sz * 0.62, -sz * 0.22);
+      ctx.lineTo(sz * 0.62, sz * 0.22);
+      ctx.lineTo(0, sz * 1.05);
+      ctx.lineTo(-sz * 0.62, sz * 0.22);
+      ctx.lineTo(-sz * 0.62, -sz * 0.22);
       ctx.closePath();
       ctx.fill();
-      // Dark amber outline for definition against light skies
-      ctx.strokeStyle = '#9a6a18';
-      ctx.lineWidth = 1.2 * s;
+
+      // Main body (warm gold) — hexagonal bipyramid silhouette
+      ctx.fillStyle = FACET_MAIN;
       ctx.beginPath();
       ctx.moveTo(0, -sz);
-      ctx.lineTo(sz * 0.55, 0);
+      ctx.lineTo(sz * 0.56, -sz * 0.20);
+      ctx.lineTo(sz * 0.56, sz * 0.20);
       ctx.lineTo(0, sz);
-      ctx.lineTo(-sz * 0.55, 0);
+      ctx.lineTo(-sz * 0.56, sz * 0.20);
+      ctx.lineTo(-sz * 0.56, -sz * 0.20);
       ctx.closePath();
-      ctx.stroke();
-      // Lit front facet (bright white)
+      ctx.fill();
+
+      // Right shadow facet — deep gold, gives 3D volume
+      ctx.fillStyle = FACET_RIGHT;
+      ctx.beginPath();
+      ctx.moveTo(0, -sz);
+      ctx.lineTo(sz * 0.56, -sz * 0.20);
+      ctx.lineTo(sz * 0.56, sz * 0.20);
+      ctx.lineTo(0, sz);
+      ctx.lineTo(0, sz * 0.15);
+      ctx.lineTo(sz * 0.18, -sz * 0.10);
+      ctx.closePath();
+      ctx.fill();
+
+      // Left lit facet — mid-tone
+      ctx.fillStyle = FACET_LEFT;
+      ctx.beginPath();
+      ctx.moveTo(-sz * 0.56, -sz * 0.20);
+      ctx.lineTo(0, -sz);
+      ctx.lineTo(sz * 0.18, -sz * 0.10);
+      ctx.lineTo(0, sz * 0.15);
+      ctx.lineTo(-sz * 0.56, sz * 0.20);
+      ctx.closePath();
+      ctx.fill();
+
+      // Top-cap brightest facet — directly catches the "light"
+      ctx.fillStyle = FACET_TOP;
+      ctx.beginPath();
+      ctx.moveTo(0, -sz);
+      ctx.lineTo(sz * 0.18, -sz * 0.10);
+      ctx.lineTo(-sz * 0.30, -sz * 0.18);
+      ctx.closePath();
+      ctx.fill();
+
+      // Specular highlight — narrow vertical streak near top-left
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
+      ctx.beginPath();
+      ctx.moveTo(-sz * 0.10, -sz * 0.85);
+      ctx.lineTo(-sz * 0.04, -sz * 0.85);
+      ctx.lineTo(-sz * 0.18, -sz * 0.20);
+      ctx.lineTo(-sz * 0.24, -sz * 0.20);
+      ctx.closePath();
+      ctx.fill();
+
+      // Sparkle dot
       ctx.fillStyle = '#ffffff';
       ctx.beginPath();
-      ctx.moveTo(0, -sz);
-      ctx.lineTo(sz * 0.28, 0);
-      ctx.lineTo(0, sz * 0.4);
-      ctx.lineTo(-sz * 0.28, 0);
-      ctx.closePath();
+      ctx.arc(-sz * 0.14, -sz * 0.55, sz * 0.13, 0, Math.PI * 2);
       ctx.fill();
-      // Tiny sparkle in the corner
-      ctx.fillStyle = 'rgba(255,255,255,0.95)';
-      ctx.beginPath();
-      ctx.arc(-sz * 0.10, -sz * 0.45, sz * 0.12, 0, Math.PI * 2);
-      ctx.fill();
+
       ctx.restore();
     });
   }, []);
@@ -2907,6 +2973,13 @@ export default function StellarDrift() {
         gsRef.current.dust = makeDust(w, h, 30, newScale);
       } else {
         gsRef.current = initGameState(w, h);
+        // Wire React setters directly — the dedicated wiring effect runs
+        // before this resize effect on first mount, so gs.onView would
+        // otherwise stay undefined and the start-menu overlay wouldn't
+        // hide when the game transitions to 'playing'.
+        gsRef.current.onFragmentChange = setFragments;
+        gsRef.current.onView = setView;
+        gsRef.current.onLeaderboardEligible = setPendingEntry;
       }
 
     };
