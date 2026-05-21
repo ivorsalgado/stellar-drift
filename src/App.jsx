@@ -202,9 +202,12 @@ const saveSettings = (s) => {
 const BASE_W = 400;
 const BASE_H = 800;
 const getScale = (w, h) => Math.min(w / BASE_W, h / BASE_H);
+// Horizontal-motion scale is decoupled from visual scale so the screen-cross
+// tempo stays constant across aspect ratios (phone → iPad → desktop).
+const getWidthScale = (w) => w / BASE_W;
 
-// PHYSICS_BASE is in reference-resolution units. makePhysics(scale) returns
-// the scaled values used by the running game. Frame-count fields (spawn
+// PHYSICS_BASE is in reference-resolution units. makePhysics(scale, widthScale)
+// returns the scaled values used by the running game. Frame-count fields (spawn
 // intervals) and proportional fields (shipX) are not scaled.
 const PHYSICS_BASE = {
   gravity: 0.22,
@@ -229,13 +232,15 @@ const PHYSICS_BASE = {
   tiltSmoothing: 0.18,
 };
 
-const makePhysics = (scale) => ({
+const makePhysics = (scale, widthScale) => ({
   gravity: PHYSICS_BASE.gravity * scale,
   impulse: PHYSICS_BASE.impulse * scale,
   maxRiseSpeed: PHYSICS_BASE.maxRiseSpeed * scale,
   maxFallSpeed: PHYSICS_BASE.maxFallSpeed * scale,
-  baseSpeed: PHYSICS_BASE.baseSpeed * scale,
-  speedPerObstacle: PHYSICS_BASE.speedPerObstacle * scale,
+  // Horizontal motion uses widthScale so column-cross time is constant
+  // regardless of viewport aspect ratio.
+  baseSpeed: PHYSICS_BASE.baseSpeed * widthScale,
+  speedPerObstacle: PHYSICS_BASE.speedPerObstacle * widthScale,
   startGap: PHYSICS_BASE.startGap * scale,
   gapShrinkPerPlanet: PHYSICS_BASE.gapShrinkPerPlanet * scale,
   minGap: PHYSICS_BASE.minGap * scale,
@@ -251,6 +256,7 @@ const makePhysics = (scale) => ({
   lateralAmbientSway: PHYSICS_BASE.lateralAmbientSway * scale,
   tiltSmoothing: PHYSICS_BASE.tiltSmoothing,
   scale,
+  widthScale,
 });
 
 export default function StellarDrift() {
@@ -737,7 +743,8 @@ export default function StellarDrift() {
   const initGameState = useCallback((w, h) => {
     const best = parseInt(localStorage.getItem('stellardrift_best') || '0', 10);
     const scale = getScale(w, h);
-    const phys = makePhysics(scale);
+    const widthScale = getWidthScale(w);
+    const phys = makePhysics(scale, widthScale);
     const sel = loadSelection();
     return {
       w, h,
@@ -2805,14 +2812,20 @@ export default function StellarDrift() {
       const offCtx = off.getContext('2d');
       offCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
             if (gsRef.current) {
+        const prevW = gsRef.current.w;
         const prevH = gsRef.current.h;
         const oldScale = gsRef.current.scale || getScale(prevH > 0 ? gsRef.current.w : w, prevH || h);
         const newScale = getScale(w, h);
+        const newWidthScale = getWidthScale(w);
         const scaleRatio = newScale / oldScale;
+        // Horizontal positions rescale by the width ratio so columns stay at the
+        // same fractional x across viewport changes; visual scale would distort
+        // this on aspect-ratio changes (e.g., rotation to landscape).
+        const widthRatio = prevW > 0 ? w / prevW : 1;
         gsRef.current.w = w;
         gsRef.current.h = h;
         gsRef.current.scale = newScale;
-        gsRef.current.phys = makePhysics(newScale);
+        gsRef.current.phys = makePhysics(newScale, newWidthScale);
         gsRef.current.ship.x = w * gsRef.current.phys.shipX;
         // Re-center ship vertically if not actively playing
         if (gsRef.current.state !== 'playing') {
@@ -2828,13 +2841,13 @@ export default function StellarDrift() {
           gsRef.current.columns.forEach((c) => {
             c.gapY = (c.gapY / prevH) * h;
             c.gap *= scaleRatio;
-            c.x *= scaleRatio;
+            c.x *= widthRatio;
           });
         }
         if (gsRef.current.fragments && gsRef.current.fragments.length) {
           gsRef.current.fragments.forEach((f) => {
             f.y = (f.y / prevH) * h;
-            f.x *= scaleRatio;
+            f.x *= widthRatio;
           });
         }
         gsRef.current.gap *= scaleRatio;
