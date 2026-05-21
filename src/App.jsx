@@ -214,8 +214,8 @@ const PHYSICS_BASE = {
   impulse: -5.0,
   maxRiseSpeed: -8.5,
   maxFallSpeed: 7.5,
-  baseSpeed: 3.0,
-  speedPerObstacle: 0.08,
+  baseSpeed: 4.5,
+  speedPerObstacle: 0.15,
   startGap: 195,
   gapShrinkPerPlanet: 8,
   minGap: 140,
@@ -2416,6 +2416,32 @@ export default function StellarDrift() {
     setMusicLayer(0);
   }, [setMusicLayer]);
 
+  // Return to the start menu from any state — resets the run but stays at
+  // music layer 0 so ambient music continues seamlessly.
+  const goToMenu = useCallback((gs) => {
+    gs.state = 'start';
+    gs.ship.x = gs.w * gs.phys.shipX;
+    gs.ship.y = gs.h * 0.5;
+    gs.ship.vx = 0;
+    gs.ship.vy = 0;
+    gs.ship.tilt = 0;
+    gs.ship.trail = [];
+    gs.columns = [];
+    gs.fragments = [];
+    gs.particles = [];
+    gs.rings = [];
+    gs.popups = [];
+    gs.score = 0;
+    gs.combo = 0;
+    gs.comboTimer = 0;
+    gs.planetIdx = 0;
+    gs.prevPlanetIdx = 0;
+    gs.planetTransition = 1;
+    gs.obstaclesInPlanet = 0;
+    gs.deathOverlay = 0;
+    setMusicLayer(0);
+  }, [setMusicLayer]);
+
   // ─────────────────────────────────────────────────────────────
   // GAME LOOP
   // ─────────────────────────────────────────────────────────────
@@ -2442,9 +2468,9 @@ export default function StellarDrift() {
       const planet = PLANETS[gs.planetIdx];
       const phys = gs.phys;
       const s = phys.scale;
-      // Linear speed ramp: starts at baseSpeed, climbs +0.1 ref-units every
-      // two obstacles. speedMul is the resulting ratio, displayed as "1.0×" etc.
-      const speedBonus = Math.floor(gs.score / 2) * 0.1 * phys.widthScale;
+      // Linear speed ramp: starts at baseSpeed, climbs by speedPerObstacle
+      // ref-units every two obstacles. speedMul is the ratio for the HUD "×".
+      const speedBonus = Math.floor(gs.score / 2) * phys.speedPerObstacle;
       const moveSpeed = phys.baseSpeed + speedBonus;
       const speedMul = moveSpeed / phys.baseSpeed;
 
@@ -2956,6 +2982,12 @@ export default function StellarDrift() {
     setOpenPanel(panel);
   }, [initAudio, resumeAudio, playMenuTap]);
 
+  const handleBackToMenu = useCallback(() => {
+    playMenuTap();
+    const gs = gsRef.current;
+    if (gs) goToMenu(gs);
+  }, [goToMenu, playMenuTap]);
+
   const handleClosePanel = useCallback(() => {
     playMenuTap();
     setOpenPanel(null);
@@ -3123,6 +3155,7 @@ export default function StellarDrift() {
             onRetry={handlePlay}
             onShare={handleShareScore}
             onLeaderboard={() => handleOpenPanel('leaderboard')}
+            onMenu={handleBackToMenu}
           />
         )}
 
@@ -3293,6 +3326,9 @@ function Icon({ name, size = 22, color = 'currentColor' }) {
   if (name === 'lock') return (
     <svg {...common}><rect x="5" y="10" width="14" height="10" rx="2" /><path d="M8 10v-3a4 4 0 0 1 8 0v3" /></svg>
   );
+  if (name === 'home') return (
+    <svg {...common}><path d="M4 11l8 -7l8 7" /><path d="M6 10v9h12v-9" /></svg>
+  );
   return null;
 }
 
@@ -3370,7 +3406,7 @@ function StartMenuOverlay({ fragments, onPlay, onOpenPanel }) {
           <Icon name="play" size={18} />
           PLAY
         </button>
-        <div style={{ display: 'flex', gap: 14 }}>
+        <div style={{ display: 'flex', gap: 18 }}>
           {[
             { id: 'ships', icon: 'ship', label: 'Ships' },
             { id: 'leaderboard', icon: 'trophy', label: 'Ranks' },
@@ -3382,23 +3418,26 @@ function StartMenuOverlay({ fragments, onPlay, onOpenPanel }) {
               onClick={() => onOpenPanel(b.id)}
               aria-label={b.label}
               style={{
-                width: 56,
-                height: 56,
-                borderRadius: 28,
+                width: 64,
+                padding: '8px 0 6px',
+                borderRadius: 18,
                 border: '1px solid rgba(255,255,255,0.12)',
                 background: 'rgba(18, 24, 38, 0.55)',
                 backdropFilter: 'blur(14px)',
                 WebkitBackdropFilter: 'blur(14px)',
                 color: '#ffffff',
                 display: 'flex',
+                flexDirection: 'column',
                 alignItems: 'center',
                 justifyContent: 'center',
+                gap: 4,
                 cursor: 'pointer',
                 outline: 'none',
                 boxShadow: '0 8px 24px rgba(0,0,0,0.35)',
               }}
             >
               <Icon name={b.icon} size={22} />
+              <span style={{ fontSize: 11, fontWeight: 500, letterSpacing: 0.4, opacity: 0.85 }}>{b.label}</span>
             </button>
           ))}
         </div>
@@ -3407,7 +3446,7 @@ function StartMenuOverlay({ fragments, onPlay, onOpenPanel }) {
   );
 }
 
-function DeathOverlay({ score, planet, onRetry, onShare, onLeaderboard }) {
+function DeathOverlay({ score, planet, onRetry, onShare, onLeaderboard, onMenu }) {
   return (
     <div
       style={{
@@ -3447,6 +3486,30 @@ function DeathOverlay({ score, planet, onRetry, onShare, onLeaderboard }) {
         TRY AGAIN
       </button>
       <div style={{ display: 'flex', gap: 12 }}>
+        <button
+          className="sd-btn"
+          onClick={onMenu}
+          aria-label="Back to menu"
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+            padding: '10px 18px',
+            borderRadius: 22,
+            border: '1px solid rgba(255,255,255,0.12)',
+            background: 'rgba(18, 24, 38, 0.55)',
+            backdropFilter: 'blur(14px)',
+            WebkitBackdropFilter: 'blur(14px)',
+            color: '#ffffff',
+            fontSize: 13,
+            fontWeight: 500,
+            cursor: 'pointer',
+            outline: 'none',
+          }}
+        >
+          <Icon name="home" size={16} />
+          Menu
+        </button>
         <button
           className="sd-btn"
           onClick={() => onShare(score, planet)}
