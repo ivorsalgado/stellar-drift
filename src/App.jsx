@@ -212,13 +212,17 @@ const getWidthScale = (w) => w / BASE_W;
 // PHYSICS_BASE is in reference-resolution units. makePhysics(scale, widthScale)
 // returns the scaled values used by the running game. Frame-count fields (spawn
 // intervals) and proportional fields (shipX) are not scaled.
+// Per-level speed bonus (ref-units) added on top of baseSpeed. Indexed by
+// planetIdx (0 = Mercury / Level 1, 9 = The Void / Level 10).
+const LEVEL_SPEED_BONUS = [0, 0.3, 0.6, 1.0, 1.4, 1.8, 2.3, 2.8, 3.4, 4.0];
+
 const PHYSICS_BASE = {
-  gravity: 0.45,
-  impulse: -8.5,
+  gravity: 0.38,
+  impulse: -8.2,
   maxRiseSpeed: -10.0,
   maxFallSpeed: 11.0,
-  baseSpeed: 5.6,
-  speedPerObstacle: 0.15,
+  baseSpeed: 2.5,
+  speedPerObstacle: 0.09,
   startGap: 195,
   gapShrinkPerPlanet: 8,
   minGap: 140,
@@ -2877,10 +2881,12 @@ export default function StellarDrift() {
       const planet = PLANETS[gs.planetIdx];
       const phys = gs.phys;
       const s = phys.scale;
-      // Linear speed ramp: starts at baseSpeed, climbs by speedPerObstacle
-      // ref-units every two obstacles. speedMul is the ratio for the HUD "×".
-      const speedBonus = Math.floor(gs.score / 2) * phys.speedPerObstacle;
-      const moveSpeed = phys.baseSpeed + speedBonus;
+      // Speed = baseSpeed + per-level bonus + (score × speedPerObstacle).
+      // Each obstacle adds 1 to score; level bonus jumps as the player crosses
+      // into each new planet. speedMul is the ratio for the HUD "×".
+      const levelBonus = (LEVEL_SPEED_BONUS[gs.planetIdx] || 0) * phys.widthScale;
+      const scoreBonus = gs.score * phys.speedPerObstacle;
+      const moveSpeed = phys.baseSpeed + levelBonus + scoreBonus;
       const speedMul = moveSpeed / phys.baseSpeed;
 
       // Apply planet transition crossfade
