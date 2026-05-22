@@ -117,6 +117,9 @@ const VERCEL_URL = 'https://stellar-drift.vercel.app';
 // are alternative silhouettes the player can buy with Star Fragments.
 const SHIP_DESIGNS = [
   { id: 'voyager', name: 'Voyager', cost: 0,   blurb: 'A balanced delta-wing classic.' },
+  { id: 'alien',   name: 'Blip',    cost: 0,   blurb: 'A cheery space alien waving hello.' },
+  { id: 'meteor',  name: 'Meteor',  cost: 0,   blurb: 'A flaming rock that just keeps going.' },
+  { id: 'ufo',     name: 'UFO',     cost: 0,   blurb: 'A classic saucer with mystery lights.' },
   { id: 'wedge',   name: 'Wedge',   cost: 50,  blurb: 'Sharp triangular fighter.' },
   { id: 'orb',     name: 'Orb',     cost: 150, blurb: 'Spherical capsule with a soft halo.' },
   { id: 'comet',   name: 'Comet',   cost: 300, blurb: 'Tail-heavy with a long flame.' },
@@ -210,10 +213,10 @@ const getWidthScale = (w) => w / BASE_W;
 // returns the scaled values used by the running game. Frame-count fields (spawn
 // intervals) and proportional fields (shipX) are not scaled.
 const PHYSICS_BASE = {
-  gravity: 0.32,
-  impulse: -6.6,
+  gravity: 0.45,
+  impulse: -8.5,
   maxRiseSpeed: -10.0,
-  maxFallSpeed: 8.5,
+  maxFallSpeed: 11.0,
   baseSpeed: 5.6,
   speedPerObstacle: 0.15,
   startGap: 195,
@@ -273,8 +276,12 @@ export default function StellarDrift() {
   const [openPanel, setOpenPanel] = useState(null); // null | 'ships' | 'leaderboard' | 'settings'
   const [fragments, setFragments] = useState(loadFragments());
   const [ownedShips, setOwnedShips] = useState(() => {
-    const o = loadOwned('stellardrift_owned_ships');
-    return o.length ? o : ['voyager'];
+    // Merge stored owned ships with all cost-0 designs so any new free
+    // designs introduced after the player's last visit auto-unlock.
+    const stored = loadOwned('stellardrift_owned_ships');
+    const free = SHIP_DESIGNS.filter((d) => d.cost === 0).map((d) => d.id);
+    const merged = Array.from(new Set([...free, ...stored]));
+    return merged;
   });
   const [ownedColors, setOwnedColors] = useState(() => {
     const o = loadOwned('stellardrift_owned_colors');
@@ -557,11 +564,37 @@ export default function StellarDrift() {
       a.musicBus.gain.linearRampToValueAtTime(0.35, a.ctx.currentTime + 1.5);
     } catch {}
 
-    const bpm = 105;
+    // Uptempo 4-bar I–V–vi–IV groove in C major (the "axis" progression —
+    // the same shape behind countless feel-good pop songs). Deterministic
+    // melodic hook so the player can hum along after one loop.
+    const bpm = 128;
     const beatDur = 60 / bpm;
-    const stepDur = beatDur / 2; // 8th notes
-    const pentatonic = [0, 2, 4, 7, 9];
-    const baseNote = 220; // A3
+    const stepDur = beatDur / 4; // 16th notes — 16 per bar, 64 per loop
+    const STEPS_PER_BAR = 16;
+    const TOTAL_STEPS = 64;
+
+    // Chord progression: C major, G major, A minor, F major (I-V-vi-IV).
+    const chordRoots = [261.63, 196.00, 220.00, 174.61];
+    const chordStacks = [
+      [261.63, 329.63, 392.00], // C E G
+      [196.00, 246.94, 293.66], // G B D
+      [220.00, 261.63, 329.63], // A C E
+      [174.61, 220.00, 261.63], // F A C
+    ];
+
+    // Lead hook — quarter notes (steps 0, 4, 8, 12 within each bar).
+    // 4 notes per bar × 4 bars = 16 notes. Pleasant rising-falling contour
+    // that resolves back to the root each bar.
+    const leadHook = [
+      // Bar 1: C major  — C, E, G, E
+      523.25, 659.25, 783.99, 659.25,
+      // Bar 2: G major  — D, G, B, G
+      587.33, 783.99, 987.77, 783.99,
+      // Bar 3: A minor  — C, E, A, E
+      523.25, 659.25, 880.00, 659.25,
+      // Bar 4: F major  — C, F, A, F
+      523.25, 698.46, 880.00, 698.46,
+    ];
 
     const scheduleNote = (when, freq, dur, type, volume, target) => {
       try {
@@ -578,6 +611,22 @@ export default function StellarDrift() {
       } catch {}
     };
 
+    const scheduleBass = (when, freq, dur) => {
+      // Punchy bass with quick pluck attack
+      try {
+        const o = a.ctx.createOscillator();
+        o.type = 'triangle';
+        o.frequency.setValueAtTime(freq * 1.5, when);
+        o.frequency.exponentialRampToValueAtTime(freq, when + 0.04);
+        const g = a.ctx.createGain();
+        g.gain.setValueAtTime(0, when);
+        g.gain.linearRampToValueAtTime(0.20, when + 0.01);
+        g.gain.exponentialRampToValueAtTime(0.001, when + dur);
+        o.connect(g); g.connect(a.musicBus);
+        o.start(when); o.stop(when + dur + 0.05);
+      } catch {}
+    };
+
     const schedulePad = (when, freq, dur) => {
       try {
         const o1 = a.ctx.createOscillator();
@@ -585,21 +634,16 @@ export default function StellarDrift() {
         o1.type = 'triangle';
         o2.type = 'triangle';
         o1.frequency.setValueAtTime(freq, when);
-        o2.frequency.setValueAtTime(freq * 1.005, when); // slight detune
-        const lfo = a.ctx.createOscillator();
-        lfo.frequency.setValueAtTime(0.3, when);
-        const lfoGain = a.ctx.createGain();
-        lfoGain.gain.value = 1.5;
-        lfo.connect(lfoGain).connect(o2.frequency);
+        o2.frequency.setValueAtTime(freq * 1.005, when);
         const g = a.ctx.createGain();
         g.gain.setValueAtTime(0, when);
-        g.gain.linearRampToValueAtTime(0.05, when + 0.4);
-        g.gain.linearRampToValueAtTime(0.04, when + dur - 0.5);
+        g.gain.linearRampToValueAtTime(0.045, when + 0.25);
+        g.gain.linearRampToValueAtTime(0.035, when + dur - 0.3);
         g.gain.exponentialRampToValueAtTime(0.001, when + dur);
         o1.connect(g); o2.connect(g);
         g.connect(a.musicBus);
-        o1.start(when); o2.start(when); lfo.start(when);
-        o1.stop(when + dur + 0.05); o2.stop(when + dur + 0.05); lfo.stop(when + dur + 0.05);
+        o1.start(when); o2.start(when);
+        o1.stop(when + dur + 0.05); o2.stop(when + dur + 0.05);
       } catch {}
     };
 
@@ -607,20 +651,21 @@ export default function StellarDrift() {
       try {
         const o = a.ctx.createOscillator();
         o.type = 'sine';
-        o.frequency.setValueAtTime(110, when);
-        o.frequency.exponentialRampToValueAtTime(40, when + 0.12);
+        o.frequency.setValueAtTime(120, when);
+        o.frequency.exponentialRampToValueAtTime(38, when + 0.10);
         const g = a.ctx.createGain();
         g.gain.setValueAtTime(0, when);
-        g.gain.linearRampToValueAtTime(0.22, when + 0.005);
+        g.gain.linearRampToValueAtTime(0.26, when + 0.005);
         g.gain.exponentialRampToValueAtTime(0.001, when + 0.18);
         o.connect(g); g.connect(a.musicBus);
         o.start(when); o.stop(when + 0.2);
       } catch {}
     };
 
-    const scheduleHat = (when) => {
+    const scheduleSnare = (when) => {
+      // Quick noise burst with a body tone for a bright clap-snare hybrid
       try {
-        const bufSize = a.ctx.sampleRate * 0.05;
+        const bufSize = a.ctx.sampleRate * 0.12;
         const buf = a.ctx.createBuffer(1, bufSize, a.ctx.sampleRate);
         const d = buf.getChannelData(0);
         for (let i = 0; i < bufSize; i++) d[i] = (Math.random() * 2 - 1);
@@ -628,12 +673,41 @@ export default function StellarDrift() {
         src.buffer = buf;
         const hp = a.ctx.createBiquadFilter();
         hp.type = 'highpass';
-        hp.frequency.value = 7000;
+        hp.frequency.value = 1800;
+        const ng = a.ctx.createGain();
+        ng.gain.setValueAtTime(0.18, when);
+        ng.gain.exponentialRampToValueAtTime(0.001, when + 0.13);
+        src.connect(hp).connect(ng).connect(a.musicBus);
+        src.start(when); src.stop(when + 0.14);
+        // Body tone
+        const o = a.ctx.createOscillator();
+        o.type = 'triangle';
+        o.frequency.setValueAtTime(220, when);
+        o.frequency.exponentialRampToValueAtTime(110, when + 0.08);
+        const og = a.ctx.createGain();
+        og.gain.setValueAtTime(0.10, when);
+        og.gain.exponentialRampToValueAtTime(0.001, when + 0.08);
+        o.connect(og); og.connect(a.musicBus);
+        o.start(when); o.stop(when + 0.1);
+      } catch {}
+    };
+
+    const scheduleHat = (when, open = false) => {
+      try {
+        const bufSize = a.ctx.sampleRate * (open ? 0.12 : 0.04);
+        const buf = a.ctx.createBuffer(1, bufSize, a.ctx.sampleRate);
+        const d = buf.getChannelData(0);
+        for (let i = 0; i < bufSize; i++) d[i] = (Math.random() * 2 - 1);
+        const src = a.ctx.createBufferSource();
+        src.buffer = buf;
+        const hp = a.ctx.createBiquadFilter();
+        hp.type = 'highpass';
+        hp.frequency.value = 7500;
         const g = a.ctx.createGain();
-        g.gain.setValueAtTime(0.04, when);
-        g.gain.exponentialRampToValueAtTime(0.001, when + 0.04);
+        g.gain.setValueAtTime(open ? 0.045 : 0.06, when);
+        g.gain.exponentialRampToValueAtTime(0.001, when + (open ? 0.12 : 0.035));
         src.connect(hp).connect(g).connect(a.musicBus);
-        src.start(when); src.stop(when + 0.05);
+        src.start(when); src.stop(when + (open ? 0.13 : 0.045));
       } catch {}
     };
 
@@ -647,44 +721,52 @@ export default function StellarDrift() {
         const step = a.musicState.beatStep;
         const t = a.musicState.lookahead;
         const layer = a.musicState.layer;
+        const barIdx = Math.floor(step / STEPS_PER_BAR);
+        const stepInBar = step % STEPS_PER_BAR;
+        const beatInBar = Math.floor(stepInBar / 4);   // 0..3
+        const stepInBeat = stepInBar % 4;              // 0..3 (16ths in a beat)
+        const root = chordRoots[barIdx];
+        const chord = chordStacks[barIdx];
 
-        // Bass on every other beat (quarter notes 0, 2, 4, 6 ...)
-        if (step % 4 === 0) {
-          const chordRoot = [0, -2, -4, -2][(Math.floor(step / 16)) % 4];
-          scheduleNote(t, baseNote * Math.pow(2, chordRoot / 12) * 0.5, 0.7, 'sine', 0.12);
+        // Pad chord — held one full bar, drops in at step 0 of each bar.
+        // Always present (layer 0+) so even the menu has harmonic warmth.
+        if (stepInBar === 0) {
+          chord.forEach((f) => schedulePad(t, f, beatDur * 4));
         }
 
-        // Pad chords every 4 beats (every 8 steps)
-        if (layer >= 1 && step % 8 === 0) {
-          const chordRoot = [0, -2, -4, -2][(Math.floor(step / 32)) % 4];
-          const f = baseNote * Math.pow(2, chordRoot / 12);
-          schedulePad(t, f, beatDur * 4);
-          schedulePad(t, f * 1.25, beatDur * 4);
-          schedulePad(t, f * 1.5, beatDur * 4);
+        // Bass — root on beats 1 & 3, octave bounce on the "and" of 2 & 4.
+        if (layer >= 1) {
+          if (beatInBar === 0 && stepInBeat === 0) scheduleBass(t, root * 0.5, beatDur * 0.6);
+          if (beatInBar === 2 && stepInBeat === 0) scheduleBass(t, root * 0.5, beatDur * 0.6);
+          if (beatInBar === 1 && stepInBeat === 2) scheduleBass(t, root, beatDur * 0.25);
+          if (beatInBar === 3 && stepInBeat === 2) scheduleBass(t, root, beatDur * 0.25);
         }
 
-        // Kick on beats 1 and 3 (steps 0, 4 of each measure)
-        if (layer >= 1 && (step % 8 === 0 || step % 8 === 4)) {
+        // Kick — four on the floor (every quarter note).
+        if (layer >= 1 && stepInBeat === 0) {
           scheduleKick(t);
         }
 
-        // Hi-hat on 8ths
-        if (layer >= 2 && step % 2 === 1) {
-          scheduleHat(t);
+        // Snare — back-beat on beats 2 and 4.
+        if (layer >= 1 && (beatInBar === 1 || beatInBar === 3) && stepInBeat === 0) {
+          scheduleSnare(t);
         }
 
-        // Melodic lead on layer 2
-        if (layer >= 2 && step % 2 === 0) {
-          if (Math.random() < 0.4) {
-            const note = pentatonic[Math.floor(Math.random() * pentatonic.length)];
-            const octave = 1 + Math.floor(Math.random() * 2);
-            const f = baseNote * Math.pow(2, (note + octave * 12) / 12);
-            scheduleNote(t, f, 0.4, 'triangle', 0.07);
-          }
+        // Hi-hat — 8ths (every 2 steps). Open hat on the "and" of beat 4.
+        if (layer >= 2 && stepInBeat % 2 === 0) {
+          const isOpen = (beatInBar === 3 && stepInBeat === 2);
+          scheduleHat(t, isOpen);
+        }
+
+        // Lead hook — quarter notes, deterministic 16-note loop over 4 bars.
+        if (layer >= 2 && stepInBeat === 0) {
+          const idx = barIdx * 4 + beatInBar;
+          const freq = leadHook[idx];
+          if (freq > 0) scheduleNote(t, freq, beatDur * 0.85, 'square', 0.055);
         }
 
         a.musicState.lookahead += stepDur;
-        a.musicState.beatStep = (step + 1) % 64;
+        a.musicState.beatStep = (step + 1) % TOTAL_STEPS;
       }
       a.musicState.timer = setTimeout(tick, 50);
     };
@@ -1855,6 +1937,242 @@ export default function StellarDrift() {
       ctx.ellipse(3 * s, -3 * s, 1.4 * s, 0.6 * s, -0.3, 0, Math.PI * 2);
       ctx.fill();
       drawNavLight(13 * s, 0, 1.6);
+    } else if (design === 'alien') {
+      // Friendly green-alien-in-a-bubble. Wobbly idle, big eye, two antennae.
+      const wobble = Math.sin(t * 0.18) * 1.2 * s;
+      const blink = (Math.sin(t * 0.05) > 0.97) ? 0.15 : 1.0; // occasional blink
+      // Soft halo behind
+      const halo = ctx.createRadialGradient(0, 0, 0, 0, 0, 18 * s);
+      halo.addColorStop(0, '#8effa0aa');
+      halo.addColorStop(1, '#8effa000');
+      ctx.fillStyle = halo;
+      ctx.beginPath(); ctx.arc(0, 0, 18 * s, 0, Math.PI * 2); ctx.fill();
+      // Tail spark — short, behind
+      const flameLen = (8 + Math.sin(t * 0.7) * 2 + (ship.vy < 0 ? 5 : 0)) * s;
+      drawFlame(-9 * s, 0, flameLen, false);
+      // Body (rounded green blob)
+      const bodyGrad = ctx.createRadialGradient(-2 * s, -3 * s, 0, 0, 0, 12 * s);
+      bodyGrad.addColorStop(0, '#c5f5b0');
+      bodyGrad.addColorStop(0.55, '#6dcc54');
+      bodyGrad.addColorStop(1, '#2c7a36');
+      ctx.fillStyle = bodyGrad;
+      ctx.beginPath();
+      ctx.ellipse(0, wobble, 11 * s, 9.5 * s, 0, 0, Math.PI * 2);
+      ctx.fill();
+      // Belly highlight
+      ctx.fillStyle = 'rgba(255,255,255,0.25)';
+      ctx.beginPath();
+      ctx.ellipse(-1 * s, 2 * s + wobble, 6 * s, 2.2 * s, 0, 0, Math.PI * 2);
+      ctx.fill();
+      // Two stubby arms — one waving
+      ctx.strokeStyle = '#3c8444';
+      ctx.lineWidth = 2.2 * s;
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.moveTo(-7 * s, 2 * s);
+      ctx.lineTo(-11 * s, 5 * s + Math.sin(t * 0.25) * 2 * s);
+      ctx.moveTo(7 * s, 2 * s);
+      ctx.lineTo(11 * s, 4 * s + Math.cos(t * 0.25) * 1 * s);
+      ctx.stroke();
+      // Two antennae with bobbing tips
+      ctx.strokeStyle = '#3c8444';
+      ctx.lineWidth = 1.6 * s;
+      ctx.beginPath();
+      ctx.moveTo(-3 * s, -8 * s);
+      ctx.lineTo(-5 * s, -13 * s);
+      ctx.moveTo(3 * s, -8 * s);
+      ctx.lineTo(5 * s, -13 * s);
+      ctx.stroke();
+      // Antenna tips (pulsing)
+      const ant = 0.7 + Math.sin(t * 0.3) * 0.3;
+      ctx.fillStyle = '#ffe480';
+      ctx.beginPath(); ctx.arc(-5 * s, -13 * s, 1.6 * s * ant, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc( 5 * s, -13 * s, 1.6 * s * ant, 0, Math.PI * 2); ctx.fill();
+      // Big single eye, facing forward
+      ctx.fillStyle = '#ffffff';
+      ctx.beginPath();
+      ctx.ellipse(3 * s, -2 * s + wobble, 5 * s, 5 * s * blink, 0, 0, Math.PI * 2);
+      ctx.fill();
+      // Pupil tracks slightly
+      if (blink > 0.5) {
+        ctx.fillStyle = '#1a2030';
+        ctx.beginPath();
+        ctx.arc(4 * s, -2 * s + wobble, 2.2 * s, 0, Math.PI * 2);
+        ctx.fill();
+        // Catchlight
+        ctx.fillStyle = '#ffffff';
+        ctx.beginPath();
+        ctx.arc(4.7 * s, -2.8 * s + wobble, 0.7 * s, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      // Tiny grin
+      ctx.strokeStyle = '#1a2030';
+      ctx.lineWidth = 1.2 * s;
+      ctx.beginPath();
+      ctx.arc(2 * s, 3 * s + wobble, 2.5 * s, 0.1 * Math.PI, 0.9 * Math.PI);
+      ctx.stroke();
+    } else if (design === 'meteor') {
+      // Flaming asteroid — chunky pitted rock with a long fire tail.
+      const flameLen = (24 + Math.sin(t * 0.7) * 6 + (ship.vy < 0 ? 12 : 0)) * s;
+      // Wide fire outer plume — yellow → orange → red
+      const outer = ctx.createLinearGradient(-6 * s, 0, -6 * s - flameLen, 0);
+      outer.addColorStop(0, '#ffe07a');
+      outer.addColorStop(0.4, '#ff9430');
+      outer.addColorStop(0.8, '#d4382acc');
+      outer.addColorStop(1, '#d4382a00');
+      ctx.fillStyle = outer;
+      ctx.beginPath();
+      ctx.moveTo(-6 * s, -7 * s);
+      ctx.quadraticCurveTo(-6 * s - flameLen * 0.5, -3 * s, -6 * s - flameLen, 0);
+      ctx.quadraticCurveTo(-6 * s - flameLen * 0.5, 3 * s, -6 * s, 7 * s);
+      ctx.closePath();
+      ctx.fill();
+      // Bright white core
+      const core = ctx.createLinearGradient(-6 * s, 0, -6 * s - flameLen * 0.5, 0);
+      core.addColorStop(0, '#ffffff');
+      core.addColorStop(1, '#ffeb8000');
+      ctx.fillStyle = core;
+      ctx.beginPath();
+      ctx.moveTo(-6 * s, -3 * s);
+      ctx.quadraticCurveTo(-6 * s - flameLen * 0.3, -1 * s, -6 * s - flameLen * 0.5, 0);
+      ctx.quadraticCurveTo(-6 * s - flameLen * 0.3, 1 * s, -6 * s, 3 * s);
+      ctx.closePath();
+      ctx.fill();
+      // Ember sparks — small flickering specks behind the rock
+      for (let i = 0; i < 4; i++) {
+        const a = ((t * 0.4 + i * 90) % 360) / 60;
+        const ex = -10 * s - (i * 5 + (t * 0.3 % 10)) * s;
+        const ey = Math.sin(t * 0.2 + i) * 3 * s;
+        ctx.fillStyle = `rgba(255, 200, 100, ${0.6 - i * 0.12})`;
+        ctx.beginPath();
+        ctx.arc(ex, ey, (1.2 - i * 0.18) * s, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      // Rock body — irregular polygon, dark grey with pits
+      const rockPts = [
+        [ 12,  -2], [ 10,  -7], [  5,  -9], [ -2, -8],
+        [ -7,  -5], [ -8,   1], [ -5,   7], [  2,   8],
+        [  8,   6], [ 12,   2],
+      ];
+      const rockGrad = ctx.createRadialGradient(2 * s, -3 * s, 0, 0, 0, 13 * s);
+      rockGrad.addColorStop(0, '#a89a8e');
+      rockGrad.addColorStop(0.6, '#6a5d54');
+      rockGrad.addColorStop(1, '#2e2620');
+      ctx.fillStyle = rockGrad;
+      ctx.beginPath();
+      rockPts.forEach(([x, y], i) => {
+        if (i === 0) ctx.moveTo(x * s, y * s);
+        else ctx.lineTo(x * s, y * s);
+      });
+      ctx.closePath();
+      ctx.fill();
+      // Outline
+      ctx.strokeStyle = '#1a1410';
+      ctx.lineWidth = 1.2 * s;
+      ctx.stroke();
+      // Surface pits (craters)
+      const pits = [
+        { x: -3, y: -3, r: 2.4 },
+        { x:  4, y:  1, r: 1.6 },
+        { x:  0, y:  4, r: 1.4 },
+        { x:  7, y: -2, r: 1.0 },
+      ];
+      pits.forEach((p) => {
+        ctx.fillStyle = 'rgba(40, 30, 25, 0.55)';
+        ctx.beginPath();
+        ctx.ellipse(p.x * s, p.y * s, p.r * s, p.r * 0.6 * s, 0, 0, Math.PI * 2);
+        ctx.fill();
+        // Lit rim
+        ctx.strokeStyle = 'rgba(255, 220, 180, 0.30)';
+        ctx.lineWidth = 0.8 * s;
+        ctx.beginPath();
+        ctx.ellipse(p.x * s, p.y * s, p.r * s, p.r * 0.6 * s, 0, Math.PI * 0.85, Math.PI * 2.15);
+        ctx.stroke();
+      });
+      // Front glow — where the meteor is hottest
+      const front = ctx.createRadialGradient(10 * s, 0, 0, 10 * s, 0, 8 * s);
+      front.addColorStop(0, '#fff4c8aa');
+      front.addColorStop(1, '#ffb04000');
+      ctx.fillStyle = front;
+      ctx.beginPath(); ctx.arc(10 * s, 0, 8 * s, 0, Math.PI * 2); ctx.fill();
+    } else if (design === 'ufo') {
+      // Classic flying saucer — silver disc + glass dome + colored lights.
+      const flameLen = (6 + Math.sin(t * 0.7) * 2) * s;
+      // Hover beam (tractor) under the saucer
+      ctx.save();
+      const beamH = 16 * s + Math.sin(t * 0.1) * 3 * s;
+      const beam = ctx.createLinearGradient(0, 4 * s, 0, 4 * s + beamH);
+      beam.addColorStop(0, '#bff7ff80');
+      beam.addColorStop(1, '#bff7ff00');
+      ctx.fillStyle = beam;
+      ctx.beginPath();
+      ctx.moveTo(-7 * s, 5 * s);
+      ctx.lineTo( 7 * s, 5 * s);
+      ctx.lineTo( 11 * s, 5 * s + beamH);
+      ctx.lineTo(-11 * s, 5 * s + beamH);
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
+      // Saucer disc — elliptical, with metallic gradient
+      const discGrad = ctx.createLinearGradient(0, -2 * s, 0, 5 * s);
+      discGrad.addColorStop(0, '#e8eef5');
+      discGrad.addColorStop(0.5, '#9ba8b8');
+      discGrad.addColorStop(1, '#4d5868');
+      ctx.fillStyle = discGrad;
+      ctx.beginPath();
+      ctx.ellipse(0, 1 * s, 16 * s, 4.5 * s, 0, 0, Math.PI * 2);
+      ctx.fill();
+      // Disc rim shadow underneath
+      ctx.fillStyle = 'rgba(20, 25, 35, 0.45)';
+      ctx.beginPath();
+      ctx.ellipse(0, 3 * s, 16 * s, 2 * s, 0, 0, Math.PI * 2);
+      ctx.fill();
+      // Glass dome on top
+      const domeGrad = ctx.createRadialGradient(-2 * s, -5 * s, 0, 0, -3 * s, 8 * s);
+      domeGrad.addColorStop(0, '#d8f4ffcc');
+      domeGrad.addColorStop(0.5, '#5fb8d0aa');
+      domeGrad.addColorStop(1, '#2a4a6688');
+      ctx.fillStyle = domeGrad;
+      ctx.beginPath();
+      ctx.ellipse(0, -2 * s, 7 * s, 6 * s, 0, Math.PI, 2 * Math.PI);
+      ctx.closePath();
+      ctx.fill();
+      // Little alien silhouette inside the dome
+      ctx.fillStyle = '#244038cc';
+      ctx.beginPath();
+      ctx.ellipse(0, -4 * s, 2.2 * s, 2.6 * s, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.ellipse(0, -1 * s, 3 * s, 1.5 * s, 0, 0, Math.PI * 2);
+      ctx.fill();
+      // Dome highlight
+      ctx.fillStyle = 'rgba(255,255,255,0.6)';
+      ctx.beginPath();
+      ctx.ellipse(-3 * s, -5 * s, 1.6 * s, 0.7 * s, -0.3, 0, Math.PI * 2);
+      ctx.fill();
+      // Dome rim ring
+      ctx.strokeStyle = '#3b4858';
+      ctx.lineWidth = 1.2 * s;
+      ctx.beginPath();
+      ctx.ellipse(0, -1 * s, 7 * s, 1.4 * s, 0, 0, Math.PI * 2);
+      ctx.stroke();
+      // Colored lights around the rim — cycling
+      const lightColors = ['#ff7a8a', '#7aff96', '#7ac8ff', '#ffe07a'];
+      for (let i = 0; i < 5; i++) {
+        const lx = -12 * s + i * 6 * s;
+        const phase = t * 0.15 + i * 0.6;
+        const bright = 0.6 + Math.sin(phase) * 0.4;
+        const ci = (i + Math.floor(t * 0.05)) % lightColors.length;
+        ctx.fillStyle = lightColors[ci];
+        ctx.shadowColor = lightColors[ci];
+        ctx.shadowBlur = 6 * s * bright;
+        ctx.beginPath();
+        ctx.arc(lx, 3 * s, (1.4 + bright * 0.4) * s, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.shadowBlur = 0;
+      // Small tail thruster spark
+      drawFlame(-15 * s, 0, flameLen, false);
     } else {
       // 'voyager' (default) — original delta-wing classic
       const flameLen = (14 + Math.sin(t * 0.7) * 4 + (ship.vy < 0 ? 8 : 0)) * s;
@@ -2410,11 +2728,10 @@ export default function StellarDrift() {
     gs.lastFlapFrame = gs.time;
     const phys = gs.phys;
     const s = phys.scale;
-    // Additive impulse — downward momentum is half-absorbed so a tap can rescue
-    // a falling ship, but rapid tap-stacking caps at maxRiseSpeed.
-    const downwardAbsorb = Math.max(0, gs.ship.vy * 0.5);
-    const newVy = gs.ship.vy + phys.impulse - downwardAbsorb;
-    gs.ship.vy = Math.max(newVy, phys.maxRiseSpeed);
+    // Classic Flappy-Bird-style: each tap REPLACES vertical velocity with
+    // impulse. Predictable rise height regardless of how fast you were falling,
+    // no rapid-tap stacking, so every gap is reachable with the same rhythm.
+    gs.ship.vy = phys.impulse;
     // Tiny lateral nudge — thruster jitter
     gs.ship.vx += (Math.random() - 0.5) * 0.6 * s;
     const planet = PLANETS[gs.planetIdx];
@@ -3809,6 +4126,101 @@ function ShipSilhouette({ design, color, size = 64 }) {
         <path d="M2 16 Q14 8 32 13 Q40 14 50 16 Q40 18 32 19 Q14 24 2 16 Z" fill="url(#g-flame)" />
         <ellipse cx="48" cy="16" rx="10" ry="6" fill="url(#g-comet)" />
         <circle cx="51" cy="15" r="2.4" fill="rgba(190,140,220,0.9)" />
+      </svg>
+    );
+  }
+  if (design === 'alien') {
+    return (
+      <svg viewBox="0 0 64 32" width={size} height={size * 0.5}>
+        <defs>
+          <radialGradient id="g-alien" cx="0.4" cy="0.35">
+            <stop offset="0%" stopColor="#c5f5b0" />
+            <stop offset="55%" stopColor="#6dcc54" />
+            <stop offset="100%" stopColor="#2c7a36" />
+          </radialGradient>
+        </defs>
+        {/* antennae */}
+        <line x1="34" y1="6" x2="32" y2="1" stroke="#3c8444" strokeWidth="1.5" />
+        <line x1="42" y1="6" x2="44" y2="1" stroke="#3c8444" strokeWidth="1.5" />
+        <circle cx="32" cy="1" r="1.6" fill="#ffe480" />
+        <circle cx="44" cy="1" r="1.6" fill="#ffe480" />
+        {/* body */}
+        <ellipse cx="38" cy="16" rx="11" ry="9.5" fill="url(#g-alien)" />
+        {/* arms */}
+        <line x1="29" y1="18" x2="24" y2="22" stroke="#3c8444" strokeWidth="2.2" strokeLinecap="round" />
+        <line x1="47" y1="18" x2="52" y2="22" stroke="#3c8444" strokeWidth="2.2" strokeLinecap="round" />
+        {/* eye */}
+        <ellipse cx="41" cy="14" rx="4.5" ry="4.5" fill="#ffffff" />
+        <circle cx="42" cy="14" r="2" fill="#1a2030" />
+        <circle cx="42.7" cy="13.3" r="0.7" fill="#ffffff" />
+        {/* smile */}
+        <path d="M36 21 Q40 24 44 21" stroke="#1a2030" strokeWidth="1.2" fill="none" strokeLinecap="round" />
+      </svg>
+    );
+  }
+  if (design === 'meteor') {
+    return (
+      <svg viewBox="0 0 64 32" width={size} height={size * 0.5}>
+        <defs>
+          <radialGradient id="g-rock" cx="0.55" cy="0.35">
+            <stop offset="0%" stopColor="#a89a8e" />
+            <stop offset="60%" stopColor="#6a5d54" />
+            <stop offset="100%" stopColor="#2e2620" />
+          </radialGradient>
+          <linearGradient id="g-fire" x1="0" y1="0" x2="1" y2="0">
+            <stop offset="0%" stopColor="rgba(255,80,40,0)" />
+            <stop offset="30%" stopColor="rgba(212,56,42,0.7)" />
+            <stop offset="70%" stopColor="rgba(255,148,48,0.85)" />
+            <stop offset="100%" stopColor="rgba(255,224,122,0.95)" />
+          </linearGradient>
+        </defs>
+        {/* fire tail */}
+        <path d="M2 16 Q14 9 30 13 Q34 14 36 16 Q34 18 30 19 Q14 23 2 16 Z" fill="url(#g-fire)" />
+        <path d="M8 16 Q18 12 26 14 Q30 14.5 32 16 Q30 17.5 26 18 Q18 20 8 16 Z" fill="rgba(255,255,255,0.5)" />
+        {/* rock */}
+        <polygon
+          points="50,14 48,9 42,7 36,8 32,11 31,17 34,23 41,24 47,22 51,18"
+          fill="url(#g-rock)"
+          stroke="#1a1410"
+          strokeWidth="1.2"
+        />
+        {/* craters */}
+        <ellipse cx="38" cy="13" rx="2" ry="1.2" fill="rgba(40,30,25,0.6)" />
+        <ellipse cx="44" cy="17" rx="1.3" ry="0.8" fill="rgba(40,30,25,0.6)" />
+        <ellipse cx="41" cy="20" rx="1.1" ry="0.7" fill="rgba(40,30,25,0.6)" />
+      </svg>
+    );
+  }
+  if (design === 'ufo') {
+    return (
+      <svg viewBox="0 0 64 32" width={size} height={size * 0.5}>
+        <defs>
+          <linearGradient id="g-disc" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="#e8eef5" />
+            <stop offset="50%" stopColor="#9ba8b8" />
+            <stop offset="100%" stopColor="#4d5868" />
+          </linearGradient>
+          <radialGradient id="g-dome" cx="0.4" cy="0.3">
+            <stop offset="0%" stopColor="rgba(216,244,255,0.85)" />
+            <stop offset="55%" stopColor="rgba(95,184,208,0.7)" />
+            <stop offset="100%" stopColor="rgba(42,74,102,0.6)" />
+          </radialGradient>
+        </defs>
+        {/* tractor beam */}
+        <polygon points="22,22 42,22 46,30 18,30" fill="rgba(191,247,255,0.35)" />
+        {/* disc */}
+        <ellipse cx="32" cy="20" rx="20" ry="5" fill="url(#g-disc)" />
+        <ellipse cx="32" cy="22" rx="20" ry="2.5" fill="rgba(20,25,35,0.45)" />
+        {/* dome */}
+        <path d="M22 18 Q32 4 42 18 Z" fill="url(#g-dome)" />
+        <ellipse cx="32" cy="14" rx="2.5" ry="2.8" fill="rgba(36,64,56,0.85)" />
+        <ellipse cx="29" cy="11" rx="1.8" ry="0.8" fill="rgba(255,255,255,0.6)" />
+        {/* rim lights */}
+        <circle cx="18" cy="22" r="1.6" fill="#ff7a8a" />
+        <circle cx="25" cy="22" r="1.6" fill="#7aff96" />
+        <circle cx="32" cy="22" r="1.6" fill="#7ac8ff" />
+        <circle cx="39" cy="22" r="1.6" fill="#ffe07a" />
+        <circle cx="46" cy="22" r="1.6" fill="#ff7a8a" />
       </svg>
     );
   }
