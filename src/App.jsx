@@ -222,7 +222,7 @@ const PHYSICS_BASE = {
   maxRiseSpeed: -10.0,
   maxFallSpeed: 11.0,
   baseSpeed: 2.5,
-  speedPerObstacle: 0.09,
+  speedPerObstacle: 0.07,
   startGap: 195,
   gapShrinkPerPlanet: 8,
   minGap: 140,
@@ -2547,7 +2547,7 @@ export default function StellarDrift() {
     ctx.save();
     ctx.globalAlpha = alpha;
     const cw = Math.min(w - 60 * s, 320 * s), ch = 110 * s;
-    const cx = (w - cw) / 2, cy = (h - ch) / 2;
+    const cx = (w - cw) / 2, cy = 18 * s;
     // Glow border
     ctx.shadowColor = planet.accent;
     ctx.shadowBlur = 30 * s;
@@ -2974,6 +2974,8 @@ export default function StellarDrift() {
               gs.obstaclesInPlanet = 0;
               gs.planetTransition = 0;
               gs.transitionCard = 120;
+              gs.combo = 0;
+              gs.comboTimer = 0;
               gs.transitionCardPlanet = gs.planetIdx;
               gs.gap = Math.max(phys.minGap, gs.gap - phys.gapShrinkPerPlanet);
               gs.spawnInterval = Math.max(phys.minSpawnInterval, gs.spawnInterval - phys.spawnShrinkPerPlanet);
