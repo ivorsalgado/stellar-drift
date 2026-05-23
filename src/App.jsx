@@ -113,26 +113,26 @@ const PLANETS = [
 // Set this to your deployed game URL. Used in the share-score snippet.
 const VERCEL_URL = 'https://stellar-drift.vercel.app';
 
-// Ship designs available for unlock. Voyager is the original ship; the others
-// are alternative silhouettes the player can buy with Star Fragments.
-const SHIP_DESIGNS = [
-  { id: 'voyager', name: 'Voyager', cost: 0,   blurb: 'A balanced delta-wing classic.' },
-  { id: 'alien',   name: 'Blip',    cost: 0,   blurb: 'A cheery space alien waving hello.' },
-  { id: 'meteor',  name: 'Meteor',  cost: 0,   blurb: 'A flaming rock that just keeps going.' },
-  { id: 'ufo',     name: 'UFO',     cost: 0,   blurb: 'A classic saucer with mystery lights.' },
-  { id: 'wedge',   name: 'Wedge',   cost: 50,  blurb: 'Sharp triangular fighter.' },
-  { id: 'orb',     name: 'Orb',     cost: 150, blurb: 'Spherical capsule with a soft halo.' },
-  { id: 'comet',   name: 'Comet',   cost: 300, blurb: 'Tail-heavy with a long flame.' },
+// Cute & goofy alien characters. hatAnchor (x, y, scale) tells the hat-draw
+// routine where to perch a hat on each alien's head.
+const ALIENS = [
+  { id: 'blip',   name: 'Blip',   cost: 0,   blurb: 'A cheery green alien waving hello.',  hatAnchor: { x:  0, y: -10, scale: 1.00 } },
+  { id: 'pip',    name: 'Pip',    cost: 0,   blurb: 'A pink pufferball with three eyes.',  hatAnchor: { x:  0, y:  -8, scale: 0.90 } },
+  { id: 'goop',   name: 'Goop',   cost: 0,   blurb: 'A yellow slime drop, sticky and silly.', hatAnchor: { x:  0, y: -11, scale: 0.95 } },
+  { id: 'wobble', name: 'Wobble', cost: 50,  blurb: 'A roly-poly egg with stubby legs.',   hatAnchor: { x:  0, y:  -9, scale: 1.00 } },
+  { id: 'glim',   name: 'Glim',   cost: 150, blurb: 'A translucent jellyfish-ghost.',      hatAnchor: { x:  0, y:  -9, scale: 1.00 } },
 ];
 
-// Hull colors. The "white" colorway is the unlocked default.
-const SHIP_COLORS = [
-  { id: 'white',    name: 'White',    main: '#e8eef8', mid: '#b8c4d8', shadow: '#6a7890', cost: 0  },
-  { id: 'coral',    name: 'Coral',    main: '#ffd2c0', mid: '#f29a90', shadow: '#a85a5a', cost: 25 },
-  { id: 'mint',     name: 'Mint',     main: '#d8f0e0', mid: '#90c8a8', shadow: '#4a7868', cost: 25 },
-  { id: 'lavender', name: 'Lavender', main: '#dccfee', mid: '#a890ce', shadow: '#5a4a7a', cost: 25 },
-  { id: 'gold',     name: 'Gold',     main: '#fbe89a', mid: '#dcb466', shadow: '#8a6c30', cost: 25 },
+// Hats / accessories. "none" is the default no-hat option.
+const HATS = [
+  { id: 'none',      name: 'No hat',    cost: 0   },
+  { id: 'shades',    name: 'Shades',    cost: 0   },
+  { id: 'tophat',    name: 'Top Hat',   cost: 25  },
+  { id: 'propeller', name: 'Propeller', cost: 50  },
+  { id: 'crown',     name: 'Crown',     cost: 100 },
 ];
+
+const findAlien = (id) => ALIENS.find((a) => a.id === id) || ALIENS[0];
 
 const LB_KEY = 'stellardrift_leaderboard_v1';
 const LB_LIMIT = 10;
@@ -170,16 +170,17 @@ const saveOwned = (key, arr) => {
 
 const loadSelection = () => {
   try {
-    return {
-      ship: localStorage.getItem('stellardrift_ship') || 'voyager',
-      color: localStorage.getItem('stellardrift_color') || 'white',
-    };
-  } catch { return { ship: 'voyager', color: 'white' }; }
+    const rawAlien = localStorage.getItem('stellardrift_alien');
+    const rawHat = localStorage.getItem('stellardrift_hat');
+    const alien = ALIENS.some((a) => a.id === rawAlien) ? rawAlien : 'blip';
+    const hat = HATS.some((h) => h.id === rawHat) ? rawHat : 'none';
+    return { alien, hat };
+  } catch { return { alien: 'blip', hat: 'none' }; }
 };
-const saveSelection = (ship, color) => {
+const saveSelection = (alien, hat) => {
   try {
-    localStorage.setItem('stellardrift_ship', ship);
-    localStorage.setItem('stellardrift_color', color);
+    localStorage.setItem('stellardrift_alien', alien);
+    localStorage.setItem('stellardrift_hat', hat);
   } catch {}
 };
 
@@ -277,22 +278,23 @@ export default function StellarDrift() {
   const initialSel = loadSelection();
   const [view, setView] = useState('start');
   const viewRef = useRef('start');
-  const [openPanel, setOpenPanel] = useState(null); // null | 'ships' | 'leaderboard' | 'settings'
+  const [openPanel, setOpenPanel] = useState(null); // null | 'aliens' | 'leaderboard' | 'settings'
   const [fragments, setFragments] = useState(loadFragments());
-  const [ownedShips, setOwnedShips] = useState(() => {
-    // Merge stored owned ships with all cost-0 designs so any new free
-    // designs introduced after the player's last visit auto-unlock.
-    const stored = loadOwned('stellardrift_owned_ships');
-    const free = SHIP_DESIGNS.filter((d) => d.cost === 0).map((d) => d.id);
+  const [ownedAliens, setOwnedAliens] = useState(() => {
+    // Merge stored owned aliens with all cost-0 designs so any new free
+    // aliens introduced after the player's last visit auto-unlock.
+    const stored = loadOwned('stellardrift_owned_aliens');
+    const free = ALIENS.filter((a) => a.cost === 0).map((a) => a.id);
     const merged = Array.from(new Set([...free, ...stored]));
     return merged;
   });
-  const [ownedColors, setOwnedColors] = useState(() => {
-    const o = loadOwned('stellardrift_owned_colors');
-    return o.length ? o : ['white'];
+  const [ownedHats, setOwnedHats] = useState(() => {
+    const stored = loadOwned('stellardrift_owned_hats');
+    const free = HATS.filter((h) => h.cost === 0).map((h) => h.id);
+    return Array.from(new Set([...free, ...stored]));
   });
-  const [selectedShip, setSelectedShip] = useState(initialSel.ship);
-  const [selectedColor, setSelectedColor] = useState(initialSel.color);
+  const [selectedAlien, setSelectedAlien] = useState(initialSel.alien);
+  const [selectedHat, setSelectedHat] = useState(initialSel.hat);
   const [leaderboard, setLeaderboard] = useState(loadLeaderboard());
   const [pendingEntry, setPendingEntry] = useState(null); // {score, planet}
   const [initials, setInitials] = useState('AAA');
@@ -307,16 +309,16 @@ export default function StellarDrift() {
   useEffect(() => { mutedRef.current = muted; }, [muted]);
   useEffect(() => { vibrationRef.current = vibration; }, [vibration]);
   useEffect(() => { saveSettings({ muted, vibration, colorBlind }); }, [muted, vibration, colorBlind]);
-  useEffect(() => { saveSelection(selectedShip, selectedColor); }, [selectedShip, selectedColor]);
-  useEffect(() => { saveOwned('stellardrift_owned_ships', ownedShips); }, [ownedShips]);
-  useEffect(() => { saveOwned('stellardrift_owned_colors', ownedColors); }, [ownedColors]);
+  useEffect(() => { saveSelection(selectedAlien, selectedHat); }, [selectedAlien, selectedHat]);
+  useEffect(() => { saveOwned('stellardrift_owned_aliens', ownedAliens); }, [ownedAliens]);
+  useEffect(() => { saveOwned('stellardrift_owned_hats', ownedHats); }, [ownedHats]);
   // Push current selection into the game state ref so the canvas renderer picks it up
   useEffect(() => {
     if (gsRef.current) {
-      gsRef.current.shipDesign = selectedShip;
-      gsRef.current.shipColor = selectedColor;
+      gsRef.current.alienId = selectedAlien;
+      gsRef.current.hatId = selectedHat;
     }
-  }, [selectedShip, selectedColor]);
+  }, [selectedAlien, selectedHat]);
   // Hook callbacks for the canvas loop to notify React of state changes
   useEffect(() => {
     if (gsRef.current) {
@@ -836,8 +838,8 @@ export default function StellarDrift() {
       w, h,
       scale,
       phys,
-      shipDesign: sel.ship,
-      shipColor: sel.color,
+      alienId: sel.alien,
+      hatId: sel.hat,
       state: 'start', // 'start' | 'playing' | 'dead'
       ship: {
         x: w * phys.shipX,
@@ -1749,13 +1751,13 @@ export default function StellarDrift() {
     ctx.restore();
   }, [drawColumn]);
 
-  const drawShip = useCallback((ctx, ship, planet, t, s, design = 'voyager', colorId = 'white') => {
-    const color = SHIP_COLORS.find((c) => c.id === colorId) || SHIP_COLORS[0];
+  const drawShip = useCallback((ctx, ship, planet, t, s, design = 'blip', hatId = 'none') => {
+    const alien = findAlien(design);
     ctx.save();
     ctx.translate(ship.x, ship.y);
     ctx.rotate(ship.tilt);
 
-    // Trail — uses planet accent, same across all ship designs
+    // Trail — uses planet accent, same across all aliens
     ctx.save();
     for (let i = 0; i < ship.trail.length; i++) {
       const p = ship.trail[i];
@@ -1806,142 +1808,7 @@ export default function StellarDrift() {
       });
     };
 
-    const pulse = 0.5 + 0.5 * Math.sin(t * 0.3);
-    const drawNavLight = (lx, ly, baseR) => {
-      ctx.save();
-      ctx.fillStyle = `rgba(255, 255, 255, ${0.8 + pulse * 0.2})`;
-      ctx.shadowColor = planet.accent;
-      ctx.shadowBlur = (8 + pulse * 6) * s;
-      ctx.beginPath();
-      ctx.arc(lx, ly, (baseR + pulse * 0.6) * s, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.restore();
-    };
-
-    if (design === 'wedge') {
-      // Sharp triangular fighter — single long flame, no separate wings.
-      const flameLen = (16 + Math.sin(t * 0.7) * 4 + (ship.vy < 0 ? 8 : 0)) * s;
-      drawFlame(-10 * s, 4 * s, flameLen, true);
-      // Body — long sharp triangle
-      const bGrad = ctx.createLinearGradient(0, -10 * s, 0, 10 * s);
-      bGrad.addColorStop(0, color.main);
-      bGrad.addColorStop(0.55, color.mid);
-      bGrad.addColorStop(1, color.shadow);
-      ctx.fillStyle = bGrad;
-      ctx.beginPath();
-      ctx.moveTo(20 * s, 0);
-      ctx.lineTo(-10 * s, -10 * s);
-      ctx.lineTo(-10 * s, 10 * s);
-      ctx.closePath();
-      ctx.fill();
-      // Bottom shadow strip for depth
-      ctx.fillStyle = 'rgba(20, 20, 30, 0.30)';
-      ctx.beginPath();
-      ctx.moveTo(20 * s, 0);
-      ctx.lineTo(-10 * s, 10 * s);
-      ctx.lineTo(-10 * s, 4 * s);
-      ctx.closePath();
-      ctx.fill();
-      // Cockpit slit near the nose
-      ctx.fillStyle = `${planet.accent}cc`;
-      ctx.beginPath();
-      ctx.ellipse(8 * s, -1 * s, 5 * s, 1.6 * s, 0, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.fillStyle = 'rgba(255,255,255,0.8)';
-      ctx.beginPath();
-      ctx.ellipse(7 * s, -2 * s, 1.5 * s, 0.5 * s, -0.2, 0, Math.PI * 2);
-      ctx.fill();
-      drawNavLight(19 * s, 0, 1.6);
-    } else if (design === 'orb') {
-      // Spherical capsule with halo ring.
-      const flameLen = (10 + Math.sin(t * 0.7) * 3 + (ship.vy < 0 ? 6 : 0)) * s;
-      drawFlame(-10 * s, 0, flameLen, false);
-      // Halo (drawn behind body)
-      ctx.save();
-      ctx.rotate(t * 0.01);
-      ctx.strokeStyle = `${planet.accent}88`;
-      ctx.lineWidth = 2 * s;
-      ctx.beginPath();
-      ctx.ellipse(0, 0, 14 * s, 5 * s, 0.4, 0, Math.PI * 2);
-      ctx.stroke();
-      ctx.restore();
-      // Sphere body
-      const orbGrad = ctx.createRadialGradient(-2 * s, -4 * s, 0, 0, 0, 11 * s);
-      orbGrad.addColorStop(0, color.main);
-      orbGrad.addColorStop(0.6, color.mid);
-      orbGrad.addColorStop(1, color.shadow);
-      ctx.fillStyle = orbGrad;
-      ctx.beginPath();
-      ctx.arc(0, 0, 11 * s, 0, Math.PI * 2);
-      ctx.fill();
-      // Equator band
-      ctx.strokeStyle = 'rgba(0,0,0,0.2)';
-      ctx.lineWidth = 1 * s;
-      ctx.beginPath();
-      ctx.ellipse(0, 0, 11 * s, 2 * s, 0, 0, Math.PI * 2);
-      ctx.stroke();
-      // Front porthole
-      ctx.fillStyle = `${planet.accent}cc`;
-      ctx.beginPath();
-      ctx.arc(4 * s, -1 * s, 4 * s, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.fillStyle = 'rgba(255,255,255,0.85)';
-      ctx.beginPath();
-      ctx.ellipse(3 * s, -2.5 * s, 1.3 * s, 0.7 * s, -0.3, 0, Math.PI * 2);
-      ctx.fill();
-      drawNavLight(11 * s, 0, 1.5);
-    } else if (design === 'comet') {
-      // Tail-heavy compact body with a long flame plume.
-      const flameLen = (28 + Math.sin(t * 0.7) * 6 + (ship.vy < 0 ? 10 : 0)) * s;
-      // Wide outer plume
-      const outerGrad = ctx.createLinearGradient(-6 * s, 0, -6 * s - flameLen, 0);
-      outerGrad.addColorStop(0, planet.accent);
-      outerGrad.addColorStop(0.5, `${planet.accent}66`);
-      outerGrad.addColorStop(1, `${planet.accent}00`);
-      ctx.fillStyle = outerGrad;
-      ctx.beginPath();
-      ctx.moveTo(-6 * s, -6 * s);
-      ctx.quadraticCurveTo(-6 * s - flameLen * 0.6, -2 * s, -6 * s - flameLen, 0);
-      ctx.quadraticCurveTo(-6 * s - flameLen * 0.6, 2 * s, -6 * s, 6 * s);
-      ctx.closePath();
-      ctx.fill();
-      // Inner bright core of the plume
-      const innerLen = flameLen * 0.7;
-      const innerGrad = ctx.createLinearGradient(-6 * s, 0, -6 * s - innerLen, 0);
-      innerGrad.addColorStop(0, '#ffffff');
-      innerGrad.addColorStop(1, `${planet.accent}00`);
-      ctx.fillStyle = innerGrad;
-      ctx.beginPath();
-      ctx.moveTo(-6 * s, -2.5 * s);
-      ctx.quadraticCurveTo(-6 * s - innerLen * 0.6, -1 * s, -6 * s - innerLen, 0);
-      ctx.quadraticCurveTo(-6 * s - innerLen * 0.6, 1 * s, -6 * s, 2.5 * s);
-      ctx.closePath();
-      ctx.fill();
-      // Body — rounded teardrop, smaller than voyager
-      const cGrad = ctx.createLinearGradient(0, -7 * s, 0, 7 * s);
-      cGrad.addColorStop(0, color.main);
-      cGrad.addColorStop(0.55, color.mid);
-      cGrad.addColorStop(1, color.shadow);
-      ctx.fillStyle = cGrad;
-      ctx.beginPath();
-      ctx.moveTo(14 * s, 0);
-      ctx.quadraticCurveTo(8 * s, -7 * s, -2 * s, -6 * s);
-      ctx.quadraticCurveTo(-7 * s, -2 * s, -7 * s, 0);
-      ctx.quadraticCurveTo(-7 * s, 2 * s, -2 * s, 6 * s);
-      ctx.quadraticCurveTo(8 * s, 7 * s, 14 * s, 0);
-      ctx.closePath();
-      ctx.fill();
-      // Cockpit
-      ctx.fillStyle = `${planet.accent}cc`;
-      ctx.beginPath();
-      ctx.ellipse(4 * s, -2 * s, 4.5 * s, 2.5 * s, 0, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.fillStyle = 'rgba(255,255,255,0.85)';
-      ctx.beginPath();
-      ctx.ellipse(3 * s, -3 * s, 1.4 * s, 0.6 * s, -0.3, 0, Math.PI * 2);
-      ctx.fill();
-      drawNavLight(13 * s, 0, 1.6);
-    } else if (design === 'alien') {
+    if (design === 'blip') {
       // Friendly green-alien-in-a-bubble. Wobbly idle, big eye, two antennae.
       const wobble = Math.sin(t * 0.18) * 1.2 * s;
       const blink = (Math.sin(t * 0.05) > 0.97) ? 0.15 : 1.0; // occasional blink
@@ -2015,230 +1882,277 @@ export default function StellarDrift() {
       ctx.beginPath();
       ctx.arc(2 * s, 3 * s + wobble, 2.5 * s, 0.1 * Math.PI, 0.9 * Math.PI);
       ctx.stroke();
-    } else if (design === 'meteor') {
-      // Flaming asteroid — chunky pitted rock with a long fire tail.
-      const flameLen = (24 + Math.sin(t * 0.7) * 6 + (ship.vy < 0 ? 12 : 0)) * s;
-      // Wide fire outer plume — yellow → orange → red
-      const outer = ctx.createLinearGradient(-6 * s, 0, -6 * s - flameLen, 0);
-      outer.addColorStop(0, '#ffe07a');
-      outer.addColorStop(0.4, '#ff9430');
-      outer.addColorStop(0.8, '#d4382acc');
-      outer.addColorStop(1, '#d4382a00');
-      ctx.fillStyle = outer;
+    } else if (design === 'pip') {
+      // Pink pufferball — three eyes in a row, tiny side fins flap.
+      const bob = Math.sin(t * 0.20) * 1.0 * s;
+      const flap = Math.sin(t * 0.45) * 2 * s;
+      const halo = ctx.createRadialGradient(0, 0, 0, 0, 0, 16 * s);
+      halo.addColorStop(0, '#ffb6d6aa');
+      halo.addColorStop(1, '#ffb6d600');
+      ctx.fillStyle = halo;
+      ctx.beginPath(); ctx.arc(0, 0, 16 * s, 0, Math.PI * 2); ctx.fill();
+      // Side fins
+      ctx.fillStyle = '#e07ab0';
       ctx.beginPath();
-      ctx.moveTo(-6 * s, -7 * s);
-      ctx.quadraticCurveTo(-6 * s - flameLen * 0.5, -3 * s, -6 * s - flameLen, 0);
-      ctx.quadraticCurveTo(-6 * s - flameLen * 0.5, 3 * s, -6 * s, 7 * s);
-      ctx.closePath();
+      ctx.ellipse(-9 * s, bob + flap, 4 * s, 2 * s, 0.3, 0, Math.PI * 2);
       ctx.fill();
-      // Bright white core
-      const core = ctx.createLinearGradient(-6 * s, 0, -6 * s - flameLen * 0.5, 0);
-      core.addColorStop(0, '#ffffff');
-      core.addColorStop(1, '#ffeb8000');
-      ctx.fillStyle = core;
       ctx.beginPath();
-      ctx.moveTo(-6 * s, -3 * s);
-      ctx.quadraticCurveTo(-6 * s - flameLen * 0.3, -1 * s, -6 * s - flameLen * 0.5, 0);
-      ctx.quadraticCurveTo(-6 * s - flameLen * 0.3, 1 * s, -6 * s, 3 * s);
-      ctx.closePath();
+      ctx.ellipse( 9 * s, bob - flap, 4 * s, 2 * s, -0.3, 0, Math.PI * 2);
       ctx.fill();
-      // Ember sparks — small flickering specks behind the rock
-      for (let i = 0; i < 4; i++) {
-        const a = ((t * 0.4 + i * 90) % 360) / 60;
-        const ex = -10 * s - (i * 5 + (t * 0.3 % 10)) * s;
-        const ey = Math.sin(t * 0.2 + i) * 3 * s;
-        ctx.fillStyle = `rgba(255, 200, 100, ${0.6 - i * 0.12})`;
-        ctx.beginPath();
-        ctx.arc(ex, ey, (1.2 - i * 0.18) * s, 0, Math.PI * 2);
-        ctx.fill();
-      }
-      // Rock body — irregular polygon, dark grey with pits
-      const rockPts = [
-        [ 12,  -2], [ 10,  -7], [  5,  -9], [ -2, -8],
-        [ -7,  -5], [ -8,   1], [ -5,   7], [  2,   8],
-        [  8,   6], [ 12,   2],
-      ];
-      const rockGrad = ctx.createRadialGradient(2 * s, -3 * s, 0, 0, 0, 13 * s);
-      rockGrad.addColorStop(0, '#a89a8e');
-      rockGrad.addColorStop(0.6, '#6a5d54');
-      rockGrad.addColorStop(1, '#2e2620');
-      ctx.fillStyle = rockGrad;
+      // Body
+      const bodyGrad = ctx.createRadialGradient(-2 * s, -3 * s, 0, 0, 0, 10 * s);
+      bodyGrad.addColorStop(0, '#ffd8e8');
+      bodyGrad.addColorStop(0.6, '#ff8bbf');
+      bodyGrad.addColorStop(1, '#b04c80');
+      ctx.fillStyle = bodyGrad;
       ctx.beginPath();
-      rockPts.forEach(([x, y], i) => {
-        if (i === 0) ctx.moveTo(x * s, y * s);
-        else ctx.lineTo(x * s, y * s);
+      ctx.arc(0, bob, 9 * s, 0, Math.PI * 2);
+      ctx.fill();
+      // Belly highlight
+      ctx.fillStyle = 'rgba(255,255,255,0.30)';
+      ctx.beginPath();
+      ctx.ellipse(-2 * s, 3 * s + bob, 5 * s, 2 * s, 0, 0, Math.PI * 2);
+      ctx.fill();
+      // Three eyes
+      const eyeY = -1 * s + bob;
+      [-5, 0, 5].forEach((ex) => {
+        ctx.fillStyle = '#ffffff';
+        ctx.beginPath(); ctx.arc(ex * s, eyeY, 2.0 * s, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = '#1a2030';
+        ctx.beginPath(); ctx.arc(ex * s + 0.4 * s, eyeY, 0.9 * s, 0, Math.PI * 2); ctx.fill();
       });
-      ctx.closePath();
-      ctx.fill();
-      // Outline
-      ctx.strokeStyle = '#1a1410';
-      ctx.lineWidth = 1.2 * s;
+      // Tiny smile
+      ctx.strokeStyle = '#1a2030';
+      ctx.lineWidth = 1.0 * s;
+      ctx.beginPath();
+      ctx.arc(0, 4 * s + bob, 2 * s, 0.15 * Math.PI, 0.85 * Math.PI);
       ctx.stroke();
-      // Surface pits (craters)
-      const pits = [
-        { x: -3, y: -3, r: 2.4 },
-        { x:  4, y:  1, r: 1.6 },
-        { x:  0, y:  4, r: 1.4 },
-        { x:  7, y: -2, r: 1.0 },
-      ];
-      pits.forEach((p) => {
-        ctx.fillStyle = 'rgba(40, 30, 25, 0.55)';
-        ctx.beginPath();
-        ctx.ellipse(p.x * s, p.y * s, p.r * s, p.r * 0.6 * s, 0, 0, Math.PI * 2);
-        ctx.fill();
-        // Lit rim
-        ctx.strokeStyle = 'rgba(255, 220, 180, 0.30)';
-        ctx.lineWidth = 0.8 * s;
-        ctx.beginPath();
-        ctx.ellipse(p.x * s, p.y * s, p.r * s, p.r * 0.6 * s, 0, Math.PI * 0.85, Math.PI * 2.15);
-        ctx.stroke();
-      });
-      // Front glow — where the meteor is hottest
-      const front = ctx.createRadialGradient(10 * s, 0, 0, 10 * s, 0, 8 * s);
-      front.addColorStop(0, '#fff4c8aa');
-      front.addColorStop(1, '#ffb04000');
-      ctx.fillStyle = front;
-      ctx.beginPath(); ctx.arc(10 * s, 0, 8 * s, 0, Math.PI * 2); ctx.fill();
-    } else if (design === 'ufo') {
-      // Classic flying saucer — silver disc + glass dome + colored lights.
-      const flameLen = (6 + Math.sin(t * 0.7) * 2) * s;
-      // Hover beam (tractor) under the saucer
-      ctx.save();
-      const beamH = 16 * s + Math.sin(t * 0.1) * 3 * s;
-      const beam = ctx.createLinearGradient(0, 4 * s, 0, 4 * s + beamH);
-      beam.addColorStop(0, '#bff7ff80');
-      beam.addColorStop(1, '#bff7ff00');
-      ctx.fillStyle = beam;
+    } else if (design === 'goop') {
+      // Yellow slime drop — tongue sticking out, dripping.
+      const wiggle = Math.sin(t * 0.15) * 0.8 * s;
+      const tongueWobble = Math.sin(t * 0.25) * 0.6 * s;
+      const halo = ctx.createRadialGradient(0, 0, 0, 0, 0, 16 * s);
+      halo.addColorStop(0, '#fff2a0aa');
+      halo.addColorStop(1, '#fff2a000');
+      ctx.fillStyle = halo;
+      ctx.beginPath(); ctx.arc(0, 0, 16 * s, 0, Math.PI * 2); ctx.fill();
+      // Body — slime blob
+      const bodyGrad = ctx.createRadialGradient(-2 * s, -3 * s, 0, 0, 0, 12 * s);
+      bodyGrad.addColorStop(0, '#fff7b8');
+      bodyGrad.addColorStop(0.55, '#f5d040');
+      bodyGrad.addColorStop(1, '#a87a10');
+      ctx.fillStyle = bodyGrad;
       ctx.beginPath();
-      ctx.moveTo(-7 * s, 5 * s);
-      ctx.lineTo( 7 * s, 5 * s);
-      ctx.lineTo( 11 * s, 5 * s + beamH);
-      ctx.lineTo(-11 * s, 5 * s + beamH);
+      ctx.moveTo(0, -11 * s);
+      ctx.bezierCurveTo( 7 * s, -10 * s,  11 * s, -2 * s, 10 * s + wiggle, 5 * s);
+      ctx.bezierCurveTo( 8 * s,  10 * s, -8 * s,  10 * s, -10 * s + wiggle, 5 * s);
+      ctx.bezierCurveTo(-11 * s, -2 * s, -7 * s, -10 * s, 0, -11 * s);
       ctx.closePath();
       ctx.fill();
-      ctx.restore();
-      // Saucer disc — elliptical, with metallic gradient
-      const discGrad = ctx.createLinearGradient(0, -2 * s, 0, 5 * s);
-      discGrad.addColorStop(0, '#e8eef5');
-      discGrad.addColorStop(0.5, '#9ba8b8');
-      discGrad.addColorStop(1, '#4d5868');
-      ctx.fillStyle = discGrad;
+      // Shine
+      ctx.fillStyle = 'rgba(255,255,255,0.45)';
       ctx.beginPath();
-      ctx.ellipse(0, 1 * s, 16 * s, 4.5 * s, 0, 0, Math.PI * 2);
+      ctx.ellipse(-3 * s, -5 * s, 3 * s, 1.4 * s, -0.4, 0, Math.PI * 2);
       ctx.fill();
-      // Disc rim shadow underneath
-      ctx.fillStyle = 'rgba(20, 25, 35, 0.45)';
+      // Eyes — two black dots
+      ctx.fillStyle = '#1a2030';
+      ctx.beginPath(); ctx.arc(-3 * s, -1 * s, 1.6 * s, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc( 3 * s, -1 * s, 1.6 * s, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#ffffff';
+      ctx.beginPath(); ctx.arc(-2.5 * s, -1.5 * s, 0.5 * s, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc( 3.5 * s, -1.5 * s, 0.5 * s, 0, Math.PI * 2); ctx.fill();
+      // Tongue
+      ctx.fillStyle = '#ff6a8a';
       ctx.beginPath();
-      ctx.ellipse(0, 3 * s, 16 * s, 2 * s, 0, 0, Math.PI * 2);
+      ctx.ellipse(1 * s + tongueWobble, 6 * s, 2.5 * s, 1.6 * s, 0, 0, Math.PI * 2);
       ctx.fill();
-      // Glass dome on top
-      const domeGrad = ctx.createRadialGradient(-2 * s, -5 * s, 0, 0, -3 * s, 8 * s);
-      domeGrad.addColorStop(0, '#d8f4ffcc');
-      domeGrad.addColorStop(0.5, '#5fb8d0aa');
-      domeGrad.addColorStop(1, '#2a4a6688');
+      // Drip
+      const dripY = (Math.sin(t * 0.08) + 1) * 4 * s + 8 * s;
+      ctx.fillStyle = '#f5d040cc';
+      ctx.beginPath(); ctx.arc(-1 * s, dripY, 1.6 * s, 0, Math.PI * 2); ctx.fill();
+    } else if (design === 'wobble') {
+      // Orange roly-poly egg — stubby legs, wide eyes.
+      const bob = Math.sin(t * 0.22) * 1.2 * s;
+      const legSwing = Math.sin(t * 0.35) * 1.5 * s;
+      const halo = ctx.createRadialGradient(0, 0, 0, 0, 0, 16 * s);
+      halo.addColorStop(0, '#ffc080aa');
+      halo.addColorStop(1, '#ffc08000');
+      ctx.fillStyle = halo;
+      ctx.beginPath(); ctx.arc(0, 0, 16 * s, 0, Math.PI * 2); ctx.fill();
+      // Stubby legs (behind body)
+      ctx.strokeStyle = '#a85428';
+      ctx.lineWidth = 3 * s;
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.moveTo(-4 * s,  7 * s);
+      ctx.lineTo(-5 * s, 11 * s + legSwing);
+      ctx.moveTo( 4 * s,  7 * s);
+      ctx.lineTo( 5 * s, 11 * s - legSwing);
+      ctx.stroke();
+      // Egg body
+      const bodyGrad = ctx.createRadialGradient(-2 * s, -3 * s, 0, 0, 0, 12 * s);
+      bodyGrad.addColorStop(0, '#ffd0a0');
+      bodyGrad.addColorStop(0.55, '#ff8c44');
+      bodyGrad.addColorStop(1, '#a44818');
+      ctx.fillStyle = bodyGrad;
+      ctx.beginPath();
+      ctx.ellipse(0, bob, 9 * s, 10 * s, 0, 0, Math.PI * 2);
+      ctx.fill();
+      // Belly highlight
+      ctx.fillStyle = 'rgba(255,255,255,0.30)';
+      ctx.beginPath();
+      ctx.ellipse(-1 * s, 3 * s + bob, 4 * s, 1.8 * s, 0, 0, Math.PI * 2);
+      ctx.fill();
+      // Wide eyes
+      ctx.fillStyle = '#ffffff';
+      ctx.beginPath(); ctx.arc(-3 * s, -2 * s + bob, 2.4 * s, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc( 3 * s, -2 * s + bob, 2.4 * s, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#1a2030';
+      ctx.beginPath(); ctx.arc(-2.5 * s, -2 * s + bob, 1.2 * s, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc( 3.5 * s, -2 * s + bob, 1.2 * s, 0, Math.PI * 2); ctx.fill();
+      // Mouth
+      ctx.strokeStyle = '#1a2030';
+      ctx.lineWidth = 1.2 * s;
+      ctx.beginPath();
+      ctx.arc(0, 3 * s + bob, 2 * s, 0.15 * Math.PI, 0.85 * Math.PI);
+      ctx.stroke();
+    } else if (design === 'glim') {
+      // Translucent purple jellyfish-ghost — tendrils, pulsing dome, wink.
+      const pulse2 = 0.85 + Math.sin(t * 0.10) * 0.15;
+      const wink = (Math.sin(t * 0.04) > 0.95) ? 0.1 : 1.0;
+      const halo = ctx.createRadialGradient(0, 0, 0, 0, 0, 18 * s);
+      halo.addColorStop(0, '#d4a8ffaa');
+      halo.addColorStop(1, '#d4a8ff00');
+      ctx.fillStyle = halo;
+      ctx.beginPath(); ctx.arc(0, 0, 18 * s, 0, Math.PI * 2); ctx.fill();
+      // Tendrils
+      ctx.strokeStyle = '#9858ce99';
+      ctx.lineWidth = 1.6 * s;
+      ctx.lineCap = 'round';
+      for (let i = -2; i <= 2; i++) {
+        const tx = i * 2.5 * s;
+        const off = Math.sin(t * 0.18 + i) * 1.8 * s;
+        ctx.beginPath();
+        ctx.moveTo(tx, 3 * s);
+        ctx.bezierCurveTo(tx + off, 7 * s, tx - off, 10 * s, tx + off * 0.5, 13 * s);
+        ctx.stroke();
+      }
+      // Dome body
+      const domeGrad = ctx.createRadialGradient(-2 * s, -4 * s, 0, 0, 0, 11 * s * pulse2);
+      domeGrad.addColorStop(0, '#f0d8ffdd');
+      domeGrad.addColorStop(0.5, '#b878e0bb');
+      domeGrad.addColorStop(1, '#6838988a');
       ctx.fillStyle = domeGrad;
       ctx.beginPath();
-      ctx.ellipse(0, -2 * s, 7 * s, 6 * s, 0, Math.PI, 2 * Math.PI);
+      ctx.ellipse(0, -1 * s, 10 * s * pulse2, 8 * s, 0, Math.PI, 2 * Math.PI);
       ctx.closePath();
       ctx.fill();
-      // Little alien silhouette inside the dome
-      ctx.fillStyle = '#244038cc';
+      // Bottom rim of dome
+      ctx.fillStyle = '#9858cebb';
       ctx.beginPath();
-      ctx.ellipse(0, -4 * s, 2.2 * s, 2.6 * s, 0, 0, Math.PI * 2);
+      ctx.ellipse(0, -1 * s, 10 * s * pulse2, 2 * s, 0, 0, Math.PI);
       ctx.fill();
+      // Highlight
+      ctx.fillStyle = 'rgba(255,255,255,0.5)';
       ctx.beginPath();
-      ctx.ellipse(0, -1 * s, 3 * s, 1.5 * s, 0, 0, Math.PI * 2);
+      ctx.ellipse(-3 * s, -5 * s, 2.5 * s, 1.0 * s, -0.4, 0, Math.PI * 2);
       ctx.fill();
-      // Dome highlight
-      ctx.fillStyle = 'rgba(255,255,255,0.6)';
-      ctx.beginPath();
-      ctx.ellipse(-3 * s, -5 * s, 1.6 * s, 0.7 * s, -0.3, 0, Math.PI * 2);
-      ctx.fill();
-      // Dome rim ring
-      ctx.strokeStyle = '#3b4858';
-      ctx.lineWidth = 1.2 * s;
-      ctx.beginPath();
-      ctx.ellipse(0, -1 * s, 7 * s, 1.4 * s, 0, 0, Math.PI * 2);
-      ctx.stroke();
-      // Colored lights around the rim — cycling
-      const lightColors = ['#ff7a8a', '#7aff96', '#7ac8ff', '#ffe07a'];
-      for (let i = 0; i < 5; i++) {
-        const lx = -12 * s + i * 6 * s;
-        const phase = t * 0.15 + i * 0.6;
-        const bright = 0.6 + Math.sin(phase) * 0.4;
-        const ci = (i + Math.floor(t * 0.05)) % lightColors.length;
-        ctx.fillStyle = lightColors[ci];
-        ctx.shadowColor = lightColors[ci];
-        ctx.shadowBlur = 6 * s * bright;
+      // Single winking eye
+      if (wink > 0.5) {
+        ctx.fillStyle = '#ffffff';
         ctx.beginPath();
-        ctx.arc(lx, 3 * s, (1.4 + bright * 0.4) * s, 0, Math.PI * 2);
+        ctx.ellipse(1 * s, -3 * s, 3 * s, 3 * s, 0, 0, Math.PI * 2);
         ctx.fill();
+        ctx.fillStyle = '#3a1855';
+        ctx.beginPath();
+        ctx.arc(1.5 * s, -3 * s, 1.5 * s, 0, Math.PI * 2);
+        ctx.fill();
+      } else {
+        ctx.strokeStyle = '#3a1855';
+        ctx.lineWidth = 1.4 * s;
+        ctx.lineCap = 'round';
+        ctx.beginPath();
+        ctx.moveTo(-2 * s, -3 * s);
+        ctx.lineTo( 4 * s, -3 * s);
+        ctx.stroke();
       }
-      ctx.shadowBlur = 0;
-      // Small tail thruster spark
-      drawFlame(-15 * s, 0, flameLen, false);
-    } else {
-      // 'voyager' (default) — original delta-wing classic
-      const flameLen = (14 + Math.sin(t * 0.7) * 4 + (ship.vy < 0 ? 8 : 0)) * s;
-      drawFlame(-12 * s, 6 * s, flameLen, true);
-      // Wings — swept delta
-      ctx.fillStyle = color.shadow;
-      ctx.beginPath();
-      ctx.moveTo(-2 * s, -2 * s);
-      ctx.lineTo(-14 * s, -13 * s);
-      ctx.lineTo(-10 * s, -2 * s);
-      ctx.closePath();
-      ctx.fill();
-      ctx.beginPath();
-      ctx.moveTo(-2 * s, 2 * s);
-      ctx.lineTo(-14 * s, 13 * s);
-      ctx.lineTo(-10 * s, 2 * s);
-      ctx.closePath();
-      ctx.fill();
-      ctx.fillStyle = `${color.main}80`;
-      ctx.beginPath();
-      ctx.moveTo(-2 * s, -2 * s);
-      ctx.lineTo(-13 * s, -12 * s);
-      ctx.lineTo(-11 * s, -8 * s);
-      ctx.lineTo(-3 * s, -1 * s);
-      ctx.closePath();
-      ctx.fill();
-      // Fuselage — elongated teardrop
-      const fGrad = ctx.createLinearGradient(0, -8 * s, 0, 8 * s);
-      fGrad.addColorStop(0, color.main);
-      fGrad.addColorStop(0.5, color.mid);
-      fGrad.addColorStop(1, color.shadow);
-      ctx.fillStyle = fGrad;
-      ctx.beginPath();
-      ctx.moveTo(18 * s, 0);
-      ctx.quadraticCurveTo(10 * s, -7 * s, -4 * s, -5 * s);
-      ctx.quadraticCurveTo(-13 * s, -3 * s, -14 * s, 0);
-      ctx.quadraticCurveTo(-13 * s, 3 * s, -4 * s, 5 * s);
-      ctx.quadraticCurveTo(10 * s, 7 * s, 18 * s, 0);
-      ctx.closePath();
-      ctx.fill();
-      ctx.fillStyle = 'rgba(40, 50, 70, 0.30)';
-      ctx.beginPath();
-      ctx.moveTo(18 * s, 0);
-      ctx.quadraticCurveTo(10 * s, 6 * s, -4 * s, 5 * s);
-      ctx.quadraticCurveTo(-13 * s, 3 * s, -14 * s, 0);
-      ctx.lineTo(18 * s, 0);
-      ctx.closePath();
-      ctx.fill();
-      // Cockpit dome
-      const cdGrad = ctx.createRadialGradient(2 * s, -3 * s, 0, 2 * s, -2 * s, 6 * s);
-      cdGrad.addColorStop(0, planet.accent);
-      cdGrad.addColorStop(0.7, '#2a4868');
-      cdGrad.addColorStop(1, '#152030');
-      ctx.fillStyle = cdGrad;
-      ctx.beginPath();
-      ctx.ellipse(3 * s, -3 * s, 6 * s, 3.5 * s, 0, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
-      ctx.beginPath();
-      ctx.ellipse(1.5 * s, -4.5 * s, 1.6 * s, 0.7 * s, -0.3, 0, Math.PI * 2);
-      ctx.fill();
-      drawNavLight(17 * s, 0, 1.6);
+    }
+
+    // ── Hat overlay (drawn last so it sits on top) ──
+    if (hatId && hatId !== 'none') {
+      const anchor = alien.hatAnchor;
+      ctx.save();
+      ctx.translate(anchor.x * s, anchor.y * s);
+      const hs = anchor.scale * s;
+      if (hatId === 'shades') {
+        // Two black lenses + bridge bar
+        ctx.fillStyle = '#1a1a22';
+        ctx.beginPath(); ctx.arc(-3.5 * hs, 0, 2.8 * hs, 0, Math.PI * 2); ctx.fill();
+        ctx.beginPath(); ctx.arc( 3.5 * hs, 0, 2.8 * hs, 0, Math.PI * 2); ctx.fill();
+        ctx.fillRect(-1.5 * hs, -0.5 * hs, 3 * hs, 1 * hs);
+        // Sheen
+        ctx.fillStyle = 'rgba(255,255,255,0.35)';
+        ctx.beginPath();
+        ctx.ellipse(-4.2 * hs, -1 * hs, 1.2 * hs, 0.5 * hs, -0.3, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.beginPath();
+        ctx.ellipse( 2.8 * hs, -1 * hs, 1.2 * hs, 0.5 * hs, -0.3, 0, Math.PI * 2);
+        ctx.fill();
+      } else if (hatId === 'tophat') {
+        // Black top hat with red band
+        ctx.fillStyle = '#0a0a14';
+        ctx.fillRect(-5 * hs, -7 * hs, 10 * hs, 7 * hs);
+        ctx.fillRect(-7 * hs, -1 * hs, 14 * hs, 1.5 * hs);
+        ctx.fillStyle = '#cc2a3a';
+        ctx.fillRect(-5 * hs, -2 * hs, 10 * hs, 1.5 * hs);
+      } else if (hatId === 'propeller') {
+        // Blue beanie + spinning yellow propeller
+        ctx.fillStyle = '#3a6ad8';
+        ctx.beginPath();
+        ctx.ellipse(0, 0, 5 * hs, 3 * hs, 0, Math.PI, 2 * Math.PI);
+        ctx.fill();
+        ctx.fillStyle = '#2a4ba8';
+        ctx.fillRect(-5 * hs, 0, 10 * hs, 1 * hs);
+        ctx.strokeStyle = '#cccccc';
+        ctx.lineWidth = 0.8 * hs;
+        ctx.beginPath();
+        ctx.moveTo(0, -3 * hs);
+        ctx.lineTo(0, -5 * hs);
+        ctx.stroke();
+        ctx.save();
+        ctx.translate(0, -5 * hs);
+        ctx.rotate(t * 0.3);
+        ctx.fillStyle = '#ffcc44';
+        ctx.fillRect(-4 * hs, -0.5 * hs, 8 * hs, 1 * hs);
+        ctx.restore();
+        ctx.fillStyle = '#ffaa00';
+        ctx.beginPath();
+        ctx.arc(0, -5 * hs, 0.7 * hs, 0, Math.PI * 2);
+        ctx.fill();
+      } else if (hatId === 'crown') {
+        // Gold crown with three jewels
+        ctx.fillStyle = '#f5c84c';
+        ctx.beginPath();
+        ctx.moveTo(-6 * hs, 0);
+        ctx.lineTo(-6 * hs, -3 * hs);
+        ctx.lineTo(-3 * hs, -6 * hs);
+        ctx.lineTo( 0,      -3 * hs);
+        ctx.lineTo( 3 * hs, -6 * hs);
+        ctx.lineTo( 6 * hs, -3 * hs);
+        ctx.lineTo( 6 * hs,  0);
+        ctx.closePath();
+        ctx.fill();
+        ctx.strokeStyle = '#a8801c';
+        ctx.lineWidth = 0.8 * hs;
+        ctx.stroke();
+        ctx.fillStyle = '#ff4060';
+        ctx.beginPath(); ctx.arc(-3 * hs, -4.5 * hs, 0.9 * hs, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = '#4080ff';
+        ctx.beginPath(); ctx.arc( 0,      -2 * hs,   0.9 * hs, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = '#40c060';
+        ctx.beginPath(); ctx.arc( 3 * hs, -4.5 * hs, 0.9 * hs, 0, Math.PI * 2); ctx.fill();
+      }
+      ctx.restore();
     }
 
     ctx.restore();
@@ -2573,60 +2487,17 @@ export default function StellarDrift() {
   }, []);
 
   const drawStartScreen = useCallback((ctx, gs, w, h) => {
-    const s = gs.scale;
+    // The DOM overlay (StartMenuOverlay) draws title, stats, PLAY, and roster.
+    // Canvas keeps only a soft accent glow behind the alien character.
     const planet = PLANETS[gs.planetIdx];
-    // Soft accent backdrop glow behind the title
     ctx.save();
-    const titleGlow = ctx.createRadialGradient(w / 2, h * 0.22, 0, w / 2, h * 0.22, Math.min(w, h) * 0.4);
-    titleGlow.addColorStop(0, `${planet.accent}26`);
-    titleGlow.addColorStop(0.5, `${planet.accent}0c`);
-    titleGlow.addColorStop(1, `${planet.accent}00`);
-    ctx.fillStyle = titleGlow;
-    ctx.fillRect(0, 0, w, h * 0.5);
+    const glow = ctx.createRadialGradient(w / 2, h * 0.55, 0, w / 2, h * 0.55, Math.min(w, h) * 0.45);
+    glow.addColorStop(0, `${planet.accent}30`);
+    glow.addColorStop(0.6, `${planet.accent}10`);
+    glow.addColorStop(1, `${planet.accent}00`);
+    ctx.fillStyle = glow;
+    ctx.fillRect(0, 0, w, h);
     ctx.restore();
-    // Title
-    ctx.save();
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.font = `300 ${46 * s}px -apple-system, BlinkMacSystemFont, "Helvetica Neue", Helvetica, Arial, sans-serif`;
-    ctx.fillStyle = '#ffffff';
-    ctx.shadowColor = `${planet.accent}cc`;
-    ctx.shadowBlur = 14 * s;
-    ctx.letterSpacing = `${5 * s}px`;
-    ctx.fillText('STELLAR DRIFT', w / 2, h * 0.22);
-    ctx.letterSpacing = '0px';
-    ctx.font = `400 ${14 * s}px -apple-system, BlinkMacSystemFont, "Helvetica Neue", Helvetica, Arial, sans-serif`;
-    ctx.fillStyle = 'rgba(255,255,255,0.78)';
-    ctx.shadowColor = 'rgba(0,0,0,0.5)';
-    ctx.shadowBlur = 3 * s;
-    ctx.fillText('A voyage through the solar system', w / 2, h * 0.28);
-    ctx.restore();
-
-    // Planet indicator dots (decorative)
-    ctx.save();
-    const n = PLANETS.length;
-    const spacing = 18 * s;
-    const totalW = (n - 1) * spacing;
-    const startX = (w - totalW) / 2;
-    const dotY = h * 0.34;
-    for (let i = 0; i < n; i++) {
-      const x = startX + i * spacing;
-      ctx.fillStyle = i === 0 ? PLANETS[i].accent : 'rgba(255,255,255,0.25)';
-      ctx.beginPath();
-      ctx.arc(x, dotY, (i === 0 ? 4 : 3) * s, 0, Math.PI * 2);
-      ctx.fill();
-    }
-    ctx.restore();
-
-    // Personal best
-    if (gs.best > 0) {
-      ctx.save();
-      ctx.font = `500 ${12 * s}px -apple-system, BlinkMacSystemFont, "Helvetica Neue", Helvetica, Arial, sans-serif`;
-      ctx.fillStyle = 'rgba(255,255,255,0.6)';
-      ctx.textAlign = 'center';
-      ctx.fillText(`Personal best · ${gs.best}`, w / 2, h * 0.40);
-      ctx.restore();
-    }
   }, []);
 
   const drawDeathScreen = useCallback((ctx, gs, w, h, t) => {
@@ -3150,7 +3021,7 @@ export default function StellarDrift() {
         offCtx.fillRect(0, 0, w, h);
       }
       // Ship
-      drawShip(offCtx, gs.ship, planet, gs.time, s, gs.shipDesign, gs.shipColor);
+      drawShip(offCtx, gs.ship, planet, gs.time, s, gs.alienId, gs.hatId);
       // Particles
       drawParticles(offCtx, gs.particles);
       // Popups
@@ -3411,42 +3282,42 @@ export default function StellarDrift() {
     setOpenPanel(null);
   }, [playMenuTap]);
 
-  const handleUnlockShip = useCallback((shipId) => {
-    const ship = SHIP_DESIGNS.find((d) => d.id === shipId);
-    if (!ship || ownedShips.includes(shipId)) return;
-    if (fragments < ship.cost) return;
-    const newCount = fragments - ship.cost;
+  const handleUnlockAlien = useCallback((alienId) => {
+    const alien = ALIENS.find((a) => a.id === alienId);
+    if (!alien || ownedAliens.includes(alienId)) return;
+    if (fragments < alien.cost) return;
+    const newCount = fragments - alien.cost;
     setFragments(newCount);
     saveFragments(newCount);
-    setOwnedShips((arr) => [...arr, shipId]);
-    setSelectedShip(shipId);
-    onShipSkinUnlocked(shipId);
+    setOwnedAliens((arr) => [...arr, alienId]);
+    setSelectedAlien(alienId);
+    onShipSkinUnlocked(alienId);
     playLevelUp();
-  }, [fragments, ownedShips, playLevelUp]);
+  }, [fragments, ownedAliens, playLevelUp]);
 
-  const handleUnlockColor = useCallback((colorId) => {
-    const c = SHIP_COLORS.find((x) => x.id === colorId);
-    if (!c || ownedColors.includes(colorId)) return;
-    if (fragments < c.cost) return;
-    const newCount = fragments - c.cost;
+  const handleUnlockHat = useCallback((hatId) => {
+    const h = HATS.find((x) => x.id === hatId);
+    if (!h || ownedHats.includes(hatId)) return;
+    if (fragments < h.cost) return;
+    const newCount = fragments - h.cost;
     setFragments(newCount);
     saveFragments(newCount);
-    setOwnedColors((arr) => [...arr, colorId]);
-    setSelectedColor(colorId);
+    setOwnedHats((arr) => [...arr, hatId]);
+    setSelectedHat(hatId);
     playLevelUp();
-  }, [fragments, ownedColors, playLevelUp]);
+  }, [fragments, ownedHats, playLevelUp]);
 
-  const handleSelectShip = useCallback((shipId) => {
-    if (!ownedShips.includes(shipId)) return;
+  const handleSelectAlien = useCallback((alienId) => {
+    if (!ownedAliens.includes(alienId)) return;
     playMenuTap();
-    setSelectedShip(shipId);
-  }, [ownedShips, playMenuTap]);
+    setSelectedAlien(alienId);
+  }, [ownedAliens, playMenuTap]);
 
-  const handleSelectColor = useCallback((colorId) => {
-    if (!ownedColors.includes(colorId)) return;
+  const handleSelectHat = useCallback((hatId) => {
+    if (!ownedHats.includes(hatId)) return;
     playMenuTap();
-    setSelectedColor(colorId);
-  }, [ownedColors, playMenuTap]);
+    setSelectedHat(hatId);
+  }, [ownedHats, playMenuTap]);
 
   const handleSubmitInitials = useCallback(() => {
     if (!pendingEntry) return;
@@ -3556,10 +3427,15 @@ export default function StellarDrift() {
           }}
         />
 
-        {/* Start menu — bottom buttons with fragments counter on top */}
+        {/* Start menu — arcade card layout */}
         {view === 'start' && !openPanel && (
           <StartMenuOverlay
             fragments={fragments}
+            best={parseInt(localStorage.getItem('stellardrift_best') || '0', 10)}
+            ownedAliens={ownedAliens}
+            selectedAlien={selectedAlien}
+            selectedHat={selectedHat}
+            onSelectAlien={handleSelectAlien}
             onPlay={handlePlay}
             onOpenPanel={handleOpenPanel}
           />
@@ -3588,17 +3464,17 @@ export default function StellarDrift() {
         )}
 
         {/* Panels */}
-        {openPanel === 'ships' && (
-          <ShipsPanel
+        {openPanel === 'aliens' && (
+          <AliensPanel
             fragments={fragments}
-            ownedShips={ownedShips}
-            ownedColors={ownedColors}
-            selectedShip={selectedShip}
-            selectedColor={selectedColor}
-            onSelectShip={handleSelectShip}
-            onSelectColor={handleSelectColor}
-            onUnlockShip={handleUnlockShip}
-            onUnlockColor={handleUnlockColor}
+            ownedAliens={ownedAliens}
+            ownedHats={ownedHats}
+            selectedAlien={selectedAlien}
+            selectedHat={selectedHat}
+            onSelectAlien={handleSelectAlien}
+            onSelectHat={handleSelectHat}
+            onUnlockAlien={handleUnlockAlien}
+            onUnlockHat={handleUnlockHat}
             onClose={handleClosePanel}
           />
         )}
@@ -3750,51 +3626,149 @@ function Icon({ name, size = 22, color = 'currentColor' }) {
   return null;
 }
 
-function StartMenuOverlay({ fragments, onPlay, onOpenPanel }) {
+function StartMenuOverlay({ fragments, best, ownedAliens, selectedAlien, selectedHat, onSelectAlien, onPlay, onOpenPanel }) {
+  // "Level" stat = highest planet reached. 15 obstacles per planet.
+  const levelReached = Math.min(10, 1 + Math.floor((best || 0) / 15));
+
+  const iconButtonStyle = {
+    width: 42,
+    height: 42,
+    borderRadius: 14,
+    border: '1px solid rgba(255,255,255,0.12)',
+    background: 'rgba(18, 24, 38, 0.55)',
+    backdropFilter: 'blur(14px)',
+    WebkitBackdropFilter: 'blur(14px)',
+    color: '#ffffff',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    cursor: 'pointer',
+    outline: 'none',
+    boxShadow: '0 8px 20px rgba(0,0,0,0.35)',
+  };
+
   return (
     <>
-      {/* Fragments counter — top center */}
+      {/* Top bar — fragments (left), action icons (right) */}
       <div
         style={{
           position: 'absolute',
-          top: 'calc(20px + env(safe-area-inset-top, 0px))',
-          left: '50%',
-          transform: 'translateX(-50%)',
-          padding: '8px 16px',
-          borderRadius: 22,
-          background: 'rgba(18, 24, 38, 0.65)',
-          backdropFilter: 'blur(14px)',
-          WebkitBackdropFilter: 'blur(14px)',
-          border: '1px solid rgba(255,255,255,0.10)',
-          color: '#ffffff',
-          fontSize: 14,
-          fontWeight: 600,
-          letterSpacing: 0.3,
+          top: 'calc(18px + env(safe-area-inset-top, 0px))',
+          left: 18,
+          right: 18,
           display: 'flex',
           alignItems: 'center',
-          gap: 8,
+          justifyContent: 'space-between',
           pointerEvents: 'none',
-          boxShadow: '0 8px 24px rgba(0,0,0,0.35)',
           animation: 'sd-overlay-in 0.5s ease-out both',
+          zIndex: 5,
         }}
       >
-        <Icon name="star" size={16} color="#f5d878" />
-        <span>{fragments.toLocaleString()} fragments</span>
+        <div
+          style={{
+            padding: '8px 14px',
+            borderRadius: 22,
+            background: 'rgba(18, 24, 38, 0.65)',
+            backdropFilter: 'blur(14px)',
+            WebkitBackdropFilter: 'blur(14px)',
+            border: '1px solid rgba(255,255,255,0.10)',
+            color: '#ffffff',
+            fontSize: 14,
+            fontWeight: 600,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 6,
+            boxShadow: '0 6px 18px rgba(0,0,0,0.32)',
+          }}
+        >
+          <Icon name="star" size={16} color="#f5d878" />
+          <span>{fragments.toLocaleString()}</span>
+        </div>
+        <div style={{ display: 'flex', gap: 10, pointerEvents: 'auto' }} onMouseDown={stopProp} onTouchStart={stopProp}>
+          <button className="sd-btn" onClick={() => onOpenPanel('leaderboard')} aria-label="Ranks" style={iconButtonStyle}>
+            <Icon name="trophy" size={20} />
+          </button>
+          <button className="sd-btn" onClick={() => onOpenPanel('settings')} aria-label="Settings" style={iconButtonStyle}>
+            <Icon name="gear" size={20} />
+          </button>
+        </div>
       </div>
 
-      {/* Bottom button stack */}
+      {/* Title plate + stat tiles — top-middle */}
       <div
         style={{
           position: 'absolute',
-          bottom: 'calc(36px + env(safe-area-inset-bottom, 0px))',
+          top: 'calc(78px + env(safe-area-inset-top, 0px))',
           left: 0,
           right: 0,
           display: 'flex',
           flexDirection: 'column',
           alignItems: 'center',
           gap: 14,
+          pointerEvents: 'none',
+          animation: 'sd-overlay-in 0.6s ease-out 0.1s both',
+          zIndex: 4,
+        }}
+      >
+        {/* Title plate */}
+        <div
+          style={{
+            padding: '10px 22px',
+            borderRadius: 18,
+            background: 'linear-gradient(180deg, rgba(40,52,82,0.85) 0%, rgba(18,24,38,0.85) 100%)',
+            border: '1px solid rgba(255,255,255,0.18)',
+            backdropFilter: 'blur(16px)',
+            WebkitBackdropFilter: 'blur(16px)',
+            boxShadow: '0 10px 30px rgba(0,0,0,0.45), inset 0 1px 0 rgba(255,255,255,0.12)',
+            color: '#ffffff',
+            fontSize: 22,
+            fontWeight: 700,
+            letterSpacing: 4,
+          }}
+        >
+          STELLAR DRIFT
+        </div>
+        {/* Stat tiles row */}
+        <div style={{ display: 'flex', gap: 12 }}>
+          {[
+            { label: 'BEST', value: best || 0 },
+            { label: 'LEVEL', value: levelReached },
+          ].map((t) => (
+            <div
+              key={t.label}
+              style={{
+                width: 92,
+                padding: '10px 8px',
+                borderRadius: 14,
+                background: 'rgba(18, 24, 38, 0.65)',
+                border: '1px solid rgba(255,255,255,0.10)',
+                backdropFilter: 'blur(14px)',
+                WebkitBackdropFilter: 'blur(14px)',
+                color: '#ffffff',
+                textAlign: 'center',
+                boxShadow: '0 6px 18px rgba(0,0,0,0.32)',
+              }}
+            >
+              <div style={{ fontSize: 10, letterSpacing: 1.4, opacity: 0.55, fontWeight: 500 }}>{t.label}</div>
+              <div style={{ fontSize: 24, fontWeight: 700, marginTop: 2 }}>{t.value}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Bottom stack — PLAY + roster */}
+      <div
+        style={{
+          position: 'absolute',
+          bottom: 'calc(28px + env(safe-area-inset-bottom, 0px))',
+          left: 0,
+          right: 0,
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          gap: 16,
           zIndex: 5,
-          animation: 'sd-overlay-in 0.6s ease-out 0.15s both',
+          animation: 'sd-overlay-in 0.6s ease-out 0.18s both',
         }}
         onTouchStart={stopProp}
         onMouseDown={stopProp}
@@ -3804,16 +3778,16 @@ function StartMenuOverlay({ fragments, onPlay, onOpenPanel }) {
           onClick={onPlay}
           aria-label="Play"
           style={{
-            padding: '18px 56px',
-            borderRadius: 36,
-            border: '1px solid rgba(255,255,255,0.22)',
-            background: 'linear-gradient(180deg, rgba(255,255,255,0.18) 0%, rgba(255,255,255,0.06) 100%)',
+            padding: '16px 64px',
+            borderRadius: 32,
+            border: '1px solid rgba(255,255,255,0.25)',
+            background: 'linear-gradient(180deg, rgba(255,255,255,0.22) 0%, rgba(255,255,255,0.08) 100%)',
             backdropFilter: 'blur(16px)',
             WebkitBackdropFilter: 'blur(16px)',
             color: '#ffffff',
             fontSize: 20,
-            fontWeight: 600,
-            letterSpacing: 2,
+            fontWeight: 700,
+            letterSpacing: 3,
             display: 'flex',
             alignItems: 'center',
             gap: 12,
@@ -3824,40 +3798,78 @@ function StartMenuOverlay({ fragments, onPlay, onOpenPanel }) {
           <Icon name="play" size={18} />
           PLAY
         </button>
-        <div style={{ display: 'flex', gap: 18 }}>
-          {[
-            { id: 'ships', icon: 'ship', label: 'Ships' },
-            { id: 'leaderboard', icon: 'trophy', label: 'Ranks' },
-            { id: 'settings', icon: 'gear', label: 'Settings' },
-          ].map((b) => (
-            <button
-              key={b.id}
-              className="sd-btn"
-              onClick={() => onOpenPanel(b.id)}
-              aria-label={b.label}
-              style={{
-                width: 64,
-                padding: '8px 0 6px',
-                borderRadius: 18,
-                border: '1px solid rgba(255,255,255,0.12)',
-                background: 'rgba(18, 24, 38, 0.55)',
-                backdropFilter: 'blur(14px)',
-                WebkitBackdropFilter: 'blur(14px)',
-                color: '#ffffff',
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: 4,
-                cursor: 'pointer',
-                outline: 'none',
-                boxShadow: '0 8px 24px rgba(0,0,0,0.35)',
-              }}
-            >
-              <Icon name={b.icon} size={22} />
-              <span style={{ fontSize: 11, fontWeight: 500, letterSpacing: 0.4, opacity: 0.85 }}>{b.label}</span>
-            </button>
-          ))}
+
+        {/* Roster strip — tap to select; + opens panel */}
+        <div
+          style={{
+            display: 'flex',
+            gap: 8,
+            padding: '8px 10px',
+            borderRadius: 22,
+            background: 'rgba(10, 14, 22, 0.55)',
+            border: '1px solid rgba(255,255,255,0.08)',
+            backdropFilter: 'blur(14px)',
+            WebkitBackdropFilter: 'blur(14px)',
+            boxShadow: '0 8px 24px rgba(0,0,0,0.35)',
+          }}
+        >
+          {ALIENS.map((a) => {
+            const owned = ownedAliens.includes(a.id);
+            const sel = a.id === selectedAlien;
+            return (
+              <button
+                key={a.id}
+                className="sd-btn"
+                onClick={() => owned ? onSelectAlien(a.id) : onOpenPanel('aliens')}
+                aria-label={a.name}
+                style={{
+                  position: 'relative',
+                  width: 52,
+                  height: 52,
+                  borderRadius: 14,
+                  background: sel ? 'rgba(255,255,255,0.16)' : 'rgba(255,255,255,0.04)',
+                  border: `1px solid ${sel ? 'rgba(255,255,255,0.40)' : 'rgba(255,255,255,0.08)'}`,
+                  padding: 0,
+                  cursor: 'pointer',
+                  outline: 'none',
+                  opacity: owned ? 1 : 0.6,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  overflow: 'hidden',
+                }}
+              >
+                <AlienSilhouette design={a.id} hat={sel ? selectedHat : 'none'} size={48} />
+                {!owned && (
+                  <div style={{ position: 'absolute', top: 3, right: 4 }}>
+                    <Icon name="lock" size={9} color="#f5d878" />
+                  </div>
+                )}
+              </button>
+            );
+          })}
+          <button
+            className="sd-btn"
+            onClick={() => onOpenPanel('aliens')}
+            aria-label="Customize"
+            style={{
+              width: 52,
+              height: 52,
+              borderRadius: 14,
+              background: 'rgba(255,255,255,0.04)',
+              border: '1px dashed rgba(255,255,255,0.25)',
+              color: 'rgba(255,255,255,0.65)',
+              fontSize: 24,
+              fontWeight: 300,
+              cursor: 'pointer',
+              outline: 'none',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
+            +
+          </button>
         </div>
       </div>
     </>
@@ -4074,180 +4086,191 @@ function PanelHeader({ title, onClose }) {
   );
 }
 
-function ShipSilhouette({ design, color, size = 64 }) {
-  // Lightweight static SVG approximation of each ship for menu cards.
-  const c = color || SHIP_COLORS[0];
-  const main = c.main, mid = c.mid, shadow = c.shadow;
-  if (design === 'wedge') {
-    return (
-      <svg viewBox="0 0 64 32" width={size} height={size * 0.5}>
+function AlienSilhouette({ design, hat, size = 64 }) {
+  // Static SVG portrait of an alien for menu cards. Optional hat overlay.
+  const HAT_ANCHORS = {
+    blip:   { x: 32, y: 18, scale: 1.0 },
+    pip:    { x: 32, y: 19, scale: 0.9 },
+    goop:   { x: 32, y: 17, scale: 0.95 },
+    wobble: { x: 32, y: 19, scale: 1.0 },
+    glim:   { x: 32, y: 21, scale: 1.0 },
+  };
+
+  const renderHat = (hatId) => {
+    if (!hatId || hatId === 'none') return null;
+    const anchor = HAT_ANCHORS[design] || HAT_ANCHORS.blip;
+    const t = `translate(${anchor.x} ${anchor.y}) scale(${anchor.scale})`;
+    if (hatId === 'shades') {
+      return (
+        <g transform={t}>
+          <circle cx={-4} cy={0} r={3} fill="#1a1a22" />
+          <circle cx={4} cy={0} r={3} fill="#1a1a22" />
+          <rect x={-1.5} y={-0.5} width={3} height={1} fill="#1a1a22" />
+          <ellipse cx={-4.5} cy={-1} rx={1.2} ry={0.5} fill="rgba(255,255,255,0.35)" transform="rotate(-15 -4.5 -1)" />
+          <ellipse cx={3.5} cy={-1} rx={1.2} ry={0.5} fill="rgba(255,255,255,0.35)" transform="rotate(-15 3.5 -1)" />
+        </g>
+      );
+    }
+    if (hatId === 'tophat') {
+      return (
+        <g transform={t}>
+          <rect x={-6} y={-9} width={12} height={9} fill="#0a0a14" />
+          <rect x={-8} y={-1} width={16} height={2} fill="#0a0a14" />
+          <rect x={-6} y={-3} width={12} height={1.6} fill="#cc2a3a" />
+        </g>
+      );
+    }
+    if (hatId === 'propeller') {
+      return (
+        <g transform={t}>
+          <path d="M-6 0 A 6 4 0 0 1 6 0 Z" fill="#3a6ad8" />
+          <rect x={-6} y={0} width={12} height={1} fill="#2a4ba8" />
+          <line x1={0} y1={-3} x2={0} y2={-6} stroke="#cccccc" strokeWidth="0.8" />
+          <rect x={-5} y={-6.5} width={10} height={1} fill="#ffcc44" transform="rotate(25 0 -6)" />
+          <circle cx={0} cy={-6} r={0.8} fill="#ffaa00" />
+        </g>
+      );
+    }
+    if (hatId === 'crown') {
+      return (
+        <g transform={t}>
+          <polygon points="-7,0 -7,-3.5 -3.5,-7 0,-3.5 3.5,-7 7,-3.5 7,0" fill="#f5c84c" stroke="#a8801c" strokeWidth="0.8" />
+          <circle cx={-3.5} cy={-5} r={1} fill="#ff4060" />
+          <circle cx={0} cy={-2.5} r={1} fill="#4080ff" />
+          <circle cx={3.5} cy={-5} r={1} fill="#40c060" />
+        </g>
+      );
+    }
+    return null;
+  };
+
+  let body;
+  if (design === 'pip') {
+    body = (
+      <g>
         <defs>
-          <linearGradient id="g-wedge" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor={main} />
-            <stop offset="55%" stopColor={mid} />
-            <stop offset="100%" stopColor={shadow} />
-          </linearGradient>
-        </defs>
-        <polygon points="6,16 22,28 22,4" fill="rgba(255,200,140,0.8)" />
-        <polygon points="14,28 14,4 56,16" fill="url(#g-wedge)" />
-        <ellipse cx="44" cy="14" rx="6" ry="2" fill="rgba(190,140,220,0.85)" />
-      </svg>
-    );
-  }
-  if (design === 'orb') {
-    return (
-      <svg viewBox="0 0 64 32" width={size} height={size * 0.5}>
-        <defs>
-          <radialGradient id="g-orb" cx="0.4" cy="0.35">
-            <stop offset="0%" stopColor={main} />
-            <stop offset="65%" stopColor={mid} />
-            <stop offset="100%" stopColor={shadow} />
+          <radialGradient id="g-pip" cx="0.4" cy="0.35">
+            <stop offset="0%" stopColor="#ffd8e8" />
+            <stop offset="55%" stopColor="#ff8bbf" />
+            <stop offset="100%" stopColor="#b04c80" />
           </radialGradient>
         </defs>
-        <polygon points="14,16 22,12 22,20" fill="rgba(255,200,140,0.8)" />
-        <ellipse cx="40" cy="16" rx="18" ry="6" fill="none" stroke="rgba(220,190,255,0.6)" strokeWidth="1.5" />
-        <circle cx="40" cy="16" r="11" fill="url(#g-orb)" />
-        <circle cx="44" cy="14" r="3.5" fill="rgba(190,140,220,0.85)" />
-      </svg>
+        <circle cx="32" cy="30" r="22" fill="#ffb6d633" />
+        <ellipse cx="20" cy="32" rx="4" ry="2" fill="#e07ab0" transform="rotate(20 20 32)" />
+        <ellipse cx="44" cy="32" rx="4" ry="2" fill="#e07ab0" transform="rotate(-20 44 32)" />
+        <circle cx="32" cy="30" r="11" fill="url(#g-pip)" />
+        <ellipse cx="30" cy="34" rx="6" ry="2" fill="rgba(255,255,255,0.3)" />
+        <circle cx="26" cy="28" r="2" fill="#ffffff" />
+        <circle cx="32" cy="28" r="2" fill="#ffffff" />
+        <circle cx="38" cy="28" r="2" fill="#ffffff" />
+        <circle cx="26.4" cy="28" r="0.9" fill="#1a2030" />
+        <circle cx="32.4" cy="28" r="0.9" fill="#1a2030" />
+        <circle cx="38.4" cy="28" r="0.9" fill="#1a2030" />
+        <path d="M28 34 Q32 37 36 34" stroke="#1a2030" strokeWidth="1" fill="none" strokeLinecap="round" />
+      </g>
     );
-  }
-  if (design === 'comet') {
-    return (
-      <svg viewBox="0 0 64 32" width={size} height={size * 0.5}>
+  } else if (design === 'goop') {
+    body = (
+      <g>
         <defs>
-          <linearGradient id="g-comet" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor={main} />
-            <stop offset="55%" stopColor={mid} />
-            <stop offset="100%" stopColor={shadow} />
-          </linearGradient>
-          <linearGradient id="g-flame" x1="0" y1="0" x2="1" y2="0">
-            <stop offset="0%" stopColor="rgba(255,255,255,0)" />
-            <stop offset="60%" stopColor="rgba(255,200,140,0.6)" />
-            <stop offset="100%" stopColor="rgba(255,230,180,1)" />
-          </linearGradient>
+          <radialGradient id="g-goop" cx="0.4" cy="0.3">
+            <stop offset="0%" stopColor="#fff7b8" />
+            <stop offset="55%" stopColor="#f5d040" />
+            <stop offset="100%" stopColor="#a87a10" />
+          </radialGradient>
         </defs>
-        <path d="M2 16 Q14 8 32 13 Q40 14 50 16 Q40 18 32 19 Q14 24 2 16 Z" fill="url(#g-flame)" />
-        <ellipse cx="48" cy="16" rx="10" ry="6" fill="url(#g-comet)" />
-        <circle cx="51" cy="15" r="2.4" fill="rgba(190,140,220,0.9)" />
-      </svg>
+        <circle cx="32" cy="32" r="22" fill="#fff2a033" />
+        <path d="M32 16 C39 17 43 24 43 33 C41 38 23 38 21 33 C21 24 25 17 32 16 Z" fill="url(#g-goop)" />
+        <ellipse cx="28" cy="22" rx="3" ry="1.4" fill="rgba(255,255,255,0.45)" transform="rotate(-25 28 22)" />
+        <circle cx="28" cy="28" r="1.6" fill="#1a2030" />
+        <circle cx="36" cy="28" r="1.6" fill="#1a2030" />
+        <circle cx="28.4" cy="27.4" r="0.5" fill="#ffffff" />
+        <circle cx="36.4" cy="27.4" r="0.5" fill="#ffffff" />
+        <ellipse cx="33" cy="36" rx="2.5" ry="1.6" fill="#ff6a8a" />
+        <circle cx="31" cy="44" r="1.6" fill="#f5d040cc" />
+      </g>
     );
-  }
-  if (design === 'alien') {
-    return (
-      <svg viewBox="0 0 64 32" width={size} height={size * 0.5}>
+  } else if (design === 'wobble') {
+    body = (
+      <g>
         <defs>
-          <radialGradient id="g-alien" cx="0.4" cy="0.35">
+          <radialGradient id="g-wob" cx="0.4" cy="0.35">
+            <stop offset="0%" stopColor="#ffd0a0" />
+            <stop offset="55%" stopColor="#ff8c44" />
+            <stop offset="100%" stopColor="#a44818" />
+          </radialGradient>
+        </defs>
+        <circle cx="32" cy="30" r="22" fill="#ffc08033" />
+        <line x1="28" y1="38" x2="27" y2="44" stroke="#a85428" strokeWidth="3" strokeLinecap="round" />
+        <line x1="36" y1="38" x2="37" y2="44" stroke="#a85428" strokeWidth="3" strokeLinecap="round" />
+        <ellipse cx="32" cy="30" rx="9" ry="10" fill="url(#g-wob)" />
+        <ellipse cx="31" cy="34" rx="4" ry="1.8" fill="rgba(255,255,255,0.3)" />
+        <circle cx="29" cy="28" r="2.4" fill="#ffffff" />
+        <circle cx="35" cy="28" r="2.4" fill="#ffffff" />
+        <circle cx="29.5" cy="28" r="1.2" fill="#1a2030" />
+        <circle cx="35.5" cy="28" r="1.2" fill="#1a2030" />
+        <path d="M28 34 Q32 36 36 34" stroke="#1a2030" strokeWidth="1.2" fill="none" strokeLinecap="round" />
+      </g>
+    );
+  } else if (design === 'glim') {
+    body = (
+      <g>
+        <defs>
+          <radialGradient id="g-glim" cx="0.4" cy="0.3">
+            <stop offset="0%" stopColor="#f0d8ffdd" />
+            <stop offset="55%" stopColor="#b878e0bb" />
+            <stop offset="100%" stopColor="#6838988a" />
+          </radialGradient>
+        </defs>
+        <circle cx="32" cy="32" r="22" fill="#d4a8ff33" />
+        <path d="M27 34 Q26 38 28 42 Q26 46 28 48" stroke="#9858ce99" strokeWidth="1.6" fill="none" strokeLinecap="round" />
+        <path d="M31 35 Q30 39 32 43 Q30 47 32 49" stroke="#9858ce99" strokeWidth="1.6" fill="none" strokeLinecap="round" />
+        <path d="M35 35 Q36 39 34 43 Q36 47 34 49" stroke="#9858ce99" strokeWidth="1.6" fill="none" strokeLinecap="round" />
+        <path d="M39 34 Q40 38 38 42 Q40 46 38 48" stroke="#9858ce99" strokeWidth="1.6" fill="none" strokeLinecap="round" />
+        <path d="M22 34 Q22 22 32 22 Q42 22 42 34 Z" fill="url(#g-glim)" />
+        <ellipse cx="32" cy="34" rx="10" ry="2" fill="#9858cebb" />
+        <ellipse cx="28" cy="27" rx="2.5" ry="1" fill="rgba(255,255,255,0.5)" transform="rotate(-25 28 27)" />
+        <circle cx="33" cy="30" r="3" fill="#ffffff" />
+        <circle cx="33.5" cy="30" r="1.5" fill="#3a1855" />
+      </g>
+    );
+  } else {
+    // 'blip' (default)
+    body = (
+      <g>
+        <defs>
+          <radialGradient id="g-blip" cx="0.4" cy="0.35">
             <stop offset="0%" stopColor="#c5f5b0" />
             <stop offset="55%" stopColor="#6dcc54" />
             <stop offset="100%" stopColor="#2c7a36" />
           </radialGradient>
         </defs>
-        {/* antennae */}
-        <line x1="34" y1="6" x2="32" y2="1" stroke="#3c8444" strokeWidth="1.5" />
-        <line x1="42" y1="6" x2="44" y2="1" stroke="#3c8444" strokeWidth="1.5" />
-        <circle cx="32" cy="1" r="1.6" fill="#ffe480" />
-        <circle cx="44" cy="1" r="1.6" fill="#ffe480" />
-        {/* body */}
-        <ellipse cx="38" cy="16" rx="11" ry="9.5" fill="url(#g-alien)" />
-        {/* arms */}
-        <line x1="29" y1="18" x2="24" y2="22" stroke="#3c8444" strokeWidth="2.2" strokeLinecap="round" />
-        <line x1="47" y1="18" x2="52" y2="22" stroke="#3c8444" strokeWidth="2.2" strokeLinecap="round" />
-        {/* eye */}
-        <ellipse cx="41" cy="14" rx="4.5" ry="4.5" fill="#ffffff" />
-        <circle cx="42" cy="14" r="2" fill="#1a2030" />
-        <circle cx="42.7" cy="13.3" r="0.7" fill="#ffffff" />
-        {/* smile */}
-        <path d="M36 21 Q40 24 44 21" stroke="#1a2030" strokeWidth="1.2" fill="none" strokeLinecap="round" />
-      </svg>
+        <circle cx="32" cy="30" r="22" fill="#8effa033" />
+        <line x1="28" y1="22" x2="26" y2="14" stroke="#3c8444" strokeWidth="1.6" />
+        <line x1="36" y1="22" x2="38" y2="14" stroke="#3c8444" strokeWidth="1.6" />
+        <circle cx="26" cy="14" r="1.6" fill="#ffe480" />
+        <circle cx="38" cy="14" r="1.6" fill="#ffe480" />
+        <line x1="23" y1="32" x2="18" y2="36" stroke="#3c8444" strokeWidth="2.2" strokeLinecap="round" />
+        <line x1="41" y1="32" x2="46" y2="36" stroke="#3c8444" strokeWidth="2.2" strokeLinecap="round" />
+        <ellipse cx="32" cy="30" rx="11" ry="9.5" fill="url(#g-blip)" />
+        <ellipse cx="31" cy="33" rx="6" ry="2.2" fill="rgba(255,255,255,0.25)" />
+        <ellipse cx="35" cy="28" rx="4.5" ry="4.5" fill="#ffffff" />
+        <circle cx="36" cy="28" r="2" fill="#1a2030" />
+        <circle cx="36.7" cy="27.3" r="0.7" fill="#ffffff" />
+        <path d="M30 35 Q34 38 38 35" stroke="#1a2030" strokeWidth="1.2" fill="none" strokeLinecap="round" />
+      </g>
     );
   }
-  if (design === 'meteor') {
-    return (
-      <svg viewBox="0 0 64 32" width={size} height={size * 0.5}>
-        <defs>
-          <radialGradient id="g-rock" cx="0.55" cy="0.35">
-            <stop offset="0%" stopColor="#a89a8e" />
-            <stop offset="60%" stopColor="#6a5d54" />
-            <stop offset="100%" stopColor="#2e2620" />
-          </radialGradient>
-          <linearGradient id="g-fire" x1="0" y1="0" x2="1" y2="0">
-            <stop offset="0%" stopColor="rgba(255,80,40,0)" />
-            <stop offset="30%" stopColor="rgba(212,56,42,0.7)" />
-            <stop offset="70%" stopColor="rgba(255,148,48,0.85)" />
-            <stop offset="100%" stopColor="rgba(255,224,122,0.95)" />
-          </linearGradient>
-        </defs>
-        {/* fire tail */}
-        <path d="M2 16 Q14 9 30 13 Q34 14 36 16 Q34 18 30 19 Q14 23 2 16 Z" fill="url(#g-fire)" />
-        <path d="M8 16 Q18 12 26 14 Q30 14.5 32 16 Q30 17.5 26 18 Q18 20 8 16 Z" fill="rgba(255,255,255,0.5)" />
-        {/* rock */}
-        <polygon
-          points="50,14 48,9 42,7 36,8 32,11 31,17 34,23 41,24 47,22 51,18"
-          fill="url(#g-rock)"
-          stroke="#1a1410"
-          strokeWidth="1.2"
-        />
-        {/* craters */}
-        <ellipse cx="38" cy="13" rx="2" ry="1.2" fill="rgba(40,30,25,0.6)" />
-        <ellipse cx="44" cy="17" rx="1.3" ry="0.8" fill="rgba(40,30,25,0.6)" />
-        <ellipse cx="41" cy="20" rx="1.1" ry="0.7" fill="rgba(40,30,25,0.6)" />
-      </svg>
-    );
-  }
-  if (design === 'ufo') {
-    return (
-      <svg viewBox="0 0 64 32" width={size} height={size * 0.5}>
-        <defs>
-          <linearGradient id="g-disc" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor="#e8eef5" />
-            <stop offset="50%" stopColor="#9ba8b8" />
-            <stop offset="100%" stopColor="#4d5868" />
-          </linearGradient>
-          <radialGradient id="g-dome" cx="0.4" cy="0.3">
-            <stop offset="0%" stopColor="rgba(216,244,255,0.85)" />
-            <stop offset="55%" stopColor="rgba(95,184,208,0.7)" />
-            <stop offset="100%" stopColor="rgba(42,74,102,0.6)" />
-          </radialGradient>
-        </defs>
-        {/* tractor beam */}
-        <polygon points="22,22 42,22 46,30 18,30" fill="rgba(191,247,255,0.35)" />
-        {/* disc */}
-        <ellipse cx="32" cy="20" rx="20" ry="5" fill="url(#g-disc)" />
-        <ellipse cx="32" cy="22" rx="20" ry="2.5" fill="rgba(20,25,35,0.45)" />
-        {/* dome */}
-        <path d="M22 18 Q32 4 42 18 Z" fill="url(#g-dome)" />
-        <ellipse cx="32" cy="14" rx="2.5" ry="2.8" fill="rgba(36,64,56,0.85)" />
-        <ellipse cx="29" cy="11" rx="1.8" ry="0.8" fill="rgba(255,255,255,0.6)" />
-        {/* rim lights */}
-        <circle cx="18" cy="22" r="1.6" fill="#ff7a8a" />
-        <circle cx="25" cy="22" r="1.6" fill="#7aff96" />
-        <circle cx="32" cy="22" r="1.6" fill="#7ac8ff" />
-        <circle cx="39" cy="22" r="1.6" fill="#ffe07a" />
-        <circle cx="46" cy="22" r="1.6" fill="#ff7a8a" />
-      </svg>
-    );
-  }
+
   return (
-    // Voyager — delta wing
-    <svg viewBox="0 0 64 32" width={size} height={size * 0.5}>
-      <defs>
-        <linearGradient id="g-voy" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor={main} />
-          <stop offset="55%" stopColor={mid} />
-          <stop offset="100%" stopColor={shadow} />
-        </linearGradient>
-      </defs>
-      <polygon points="10,16 16,12 16,20" fill="rgba(255,200,140,0.8)" />
-      <polygon points="22,16 12,4 26,14" fill={shadow} />
-      <polygon points="22,16 12,28 26,18" fill={shadow} />
-      <path d="M52 16 Q42 8 30 11 Q22 13 18 16 Q22 19 30 21 Q42 24 52 16 Z" fill="url(#g-voy)" />
-      <ellipse cx="36" cy="14" rx="5" ry="2.8" fill="rgba(190,140,220,0.85)" />
+    <svg viewBox="0 0 64 56" width={size} height={size * 0.88}>
+      {body}
+      {renderHat(hat)}
     </svg>
   );
 }
 
-function ShipsPanel({ fragments, ownedShips, ownedColors, selectedShip, selectedColor, onSelectShip, onSelectColor, onUnlockShip, onUnlockColor, onClose }) {
-  const currentColor = SHIP_COLORS.find((c) => c.id === selectedColor) || SHIP_COLORS[0];
+function AliensPanel({ fragments, ownedAliens, ownedHats, selectedAlien, selectedHat, onSelectAlien, onSelectHat, onUnlockAlien, onUnlockHat, onClose }) {
   return (
     <div style={overlayBackdropStyle} onTouchStart={stopProp} onMouseDown={stopProp} onClick={onClose}>
       <div
@@ -4262,24 +4285,24 @@ function ShipsPanel({ fragments, ownedShips, ownedColors, selectedShip, selected
           animation: 'sd-panel-in 0.22s ease-out',
         }}
       >
-        <PanelHeader title="Ships" onClose={onClose} />
+        <PanelHeader title="Aliens" onClose={onClose} />
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, opacity: 0.7, marginBottom: 14 }}>
           <Icon name="star" size={14} color="#f5d878" />
           <span>{fragments.toLocaleString()} fragments</span>
         </div>
         <div style={{ overflowY: 'auto', flex: 1, paddingRight: 4 }}>
-          {/* Ship designs */}
-          <div style={{ fontSize: 11, opacity: 0.55, letterSpacing: 1.4, marginBottom: 10 }}>DESIGN</div>
+          {/* Aliens */}
+          <div style={{ fontSize: 11, opacity: 0.55, letterSpacing: 1.4, marginBottom: 10 }}>CHARACTER</div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 22 }}>
-            {SHIP_DESIGNS.map((d) => {
-              const owned = ownedShips.includes(d.id);
-              const sel = d.id === selectedShip;
-              const canAfford = fragments >= d.cost;
+            {ALIENS.map((a) => {
+              const owned = ownedAliens.includes(a.id);
+              const sel = a.id === selectedAlien;
+              const canAfford = fragments >= a.cost;
               return (
                 <button
-                  key={d.id}
+                  key={a.id}
                   className="sd-btn"
-                  onClick={() => owned ? onSelectShip(d.id) : (canAfford ? onUnlockShip(d.id) : null)}
+                  onClick={() => owned ? onSelectAlien(a.id) : (canAfford ? onUnlockAlien(a.id) : null)}
                   disabled={!owned && !canAfford}
                   style={{
                     background: sel ? 'rgba(255,255,255,0.10)' : 'rgba(255,255,255,0.04)',
@@ -4294,60 +4317,57 @@ function ShipsPanel({ fragments, ownedShips, ownedColors, selectedShip, selected
                   }}
                 >
                   <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 6 }}>
-                    <ShipSilhouette design={d.id} color={currentColor} size={88} />
+                    <AlienSilhouette design={a.id} hat={sel ? selectedHat : 'none'} size={88} />
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                    <div style={{ fontSize: 14, fontWeight: 600 }}>{d.name}</div>
+                    <div style={{ fontSize: 14, fontWeight: 600 }}>{a.name}</div>
                     {owned
                       ? (sel
                         ? <span style={{ color: '#a8e8c8' }}><Icon name="check" size={16} color="#a8e8c8" /></span>
                         : <span style={{ fontSize: 11, opacity: 0.55 }}>Owned</span>)
                       : <span style={{ fontSize: 12, fontWeight: 500, display: 'flex', alignItems: 'center', gap: 4, opacity: canAfford ? 1 : 0.6 }}>
                           <Icon name="star" size={12} color="#f5d878" />
-                          {d.cost}
+                          {a.cost}
                         </span>}
                   </div>
-                  <div style={{ fontSize: 11, opacity: 0.55, marginTop: 4 }}>{d.blurb}</div>
+                  <div style={{ fontSize: 11, opacity: 0.55, marginTop: 4 }}>{a.blurb}</div>
                 </button>
               );
             })}
           </div>
-          {/* Colors */}
-          <div style={{ fontSize: 11, opacity: 0.55, letterSpacing: 1.4, marginBottom: 10 }}>COLOR</div>
+          {/* Hats */}
+          <div style={{ fontSize: 11, opacity: 0.55, letterSpacing: 1.4, marginBottom: 10 }}>HAT</div>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginBottom: 8 }}>
-            {SHIP_COLORS.map((c) => {
-              const owned = ownedColors.includes(c.id);
-              const sel = c.id === selectedColor;
-              const canAfford = fragments >= c.cost;
+            {HATS.map((h) => {
+              const owned = ownedHats.includes(h.id);
+              const sel = h.id === selectedHat;
+              const canAfford = fragments >= h.cost;
               return (
                 <button
-                  key={c.id}
+                  key={h.id}
                   className="sd-btn"
-                  onClick={() => owned ? onSelectColor(c.id) : (canAfford ? onUnlockColor(c.id) : null)}
+                  onClick={() => owned ? onSelectHat(h.id) : (canAfford ? onUnlockHat(h.id) : null)}
                   disabled={!owned && !canAfford}
                   style={{
-                    width: 64,
+                    width: 72,
                     background: sel ? 'rgba(255,255,255,0.10)' : 'rgba(255,255,255,0.04)',
                     border: `1px solid ${sel ? 'rgba(255,255,255,0.35)' : 'rgba(255,255,255,0.10)'}`,
                     borderRadius: 14,
-                    padding: '10px 6px',
+                    padding: '8px 6px',
                     cursor: (owned || canAfford) ? 'pointer' : 'not-allowed',
                     outline: 'none',
                     color: '#ffffff',
                     opacity: (!owned && !canAfford) ? 0.5 : 1,
                   }}
                 >
-                  <div style={{
-                    width: 32, height: 32, borderRadius: 16, margin: '0 auto 6px',
-                    background: `linear-gradient(135deg, ${c.main}, ${c.mid} 55%, ${c.shadow})`,
-                    border: '1px solid rgba(255,255,255,0.15)',
-                    boxShadow: 'inset 0 1px 2px rgba(255,255,255,0.4)',
-                  }} />
-                  <div style={{ fontSize: 10, fontWeight: 500, textAlign: 'center' }}>{c.name}</div>
+                  <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 4 }}>
+                    <AlienSilhouette design={selectedAlien} hat={h.id} size={56} />
+                  </div>
+                  <div style={{ fontSize: 10, fontWeight: 500, textAlign: 'center' }}>{h.name}</div>
                   <div style={{ fontSize: 9, opacity: 0.6, textAlign: 'center', marginTop: 2 }}>
                     {owned
                       ? (sel ? '✓ selected' : 'owned')
-                      : `★ ${c.cost}`}
+                      : `★ ${h.cost}`}
                   </div>
                 </button>
               );
