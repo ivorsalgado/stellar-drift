@@ -222,7 +222,7 @@ const PHYSICS_BASE = {
   maxRiseSpeed: -10.0,
   maxFallSpeed: 11.0,
   baseSpeed: 2.5,
-  speedPerObstacle: 0.07,
+  speedPerObstacle: 0.05,
   startGap: 195,
   gapShrinkPerPlanet: 8,
   minGap: 140,
@@ -421,7 +421,7 @@ export default function StellarDrift() {
     if (!a) return;
     try {
       const t = a.ctx.currentTime;
-      const baseFreq = 700 + Math.min(combo - 1, 12) * 60;
+      const baseFreq = 700 + Math.min(combo - 1, 14) * 60;
       const o = a.ctx.createOscillator();
       o.type = 'sine';
       o.frequency.setValueAtTime(baseFreq, t);
@@ -2546,34 +2546,29 @@ export default function StellarDrift() {
 
     ctx.save();
     ctx.globalAlpha = alpha;
-    const cw = Math.min(w - 60 * s, 320 * s), ch = 110 * s;
-    const cx = (w - cw) / 2, cy = 18 * s;
-    // Glow border
+    const cw = Math.min(w - 60 * s, 320 * s), ch = 90 * s;
+    const cx = (w - cw) / 2, cy = 90 * s;
+    // Background with glow
     ctx.shadowColor = planet.accent;
-    ctx.shadowBlur = 30 * s;
-    ctx.fillStyle = 'rgba(15, 20, 30, 0.85)';
+    ctx.shadowBlur = 20 * s;
+    ctx.fillStyle = 'rgba(15, 20, 30, 0.50)';
     roundRect(ctx, cx, cy, cw, ch, 22 * s);
     ctx.fill();
     ctx.shadowBlur = 0;
-    // Inner border line
-    ctx.strokeStyle = `${planet.accent}80`;
-    ctx.lineWidth = 1;
-    roundRect(ctx, cx + 3 * s, cy + 3 * s, cw - 6 * s, ch - 6 * s, 18 * s);
-    ctx.stroke();
     // Planet number tag
     ctx.font = `500 ${11 * s}px -apple-system, BlinkMacSystemFont, "Helvetica Neue", Helvetica, Arial, sans-serif`;
     ctx.fillStyle = planet.accent;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'top';
-    ctx.fillText(`PLANET ${gs.transitionCardPlanet + 1} OF ${PLANETS.length}`, w / 2, cy + 18 * s);
+    ctx.fillText(`PLANET ${gs.transitionCardPlanet + 1} OF ${PLANETS.length}`, w / 2, cy + 12 * s);
     // Planet name
     ctx.font = `600 ${26 * s}px -apple-system, BlinkMacSystemFont, "Helvetica Neue", Helvetica, Arial, sans-serif`;
     ctx.fillStyle = '#ffffff';
-    ctx.fillText(planet.name, w / 2, cy + 36 * s);
+    ctx.fillText(planet.name, w / 2, cy + 30 * s);
     // Tagline
     ctx.font = `400 ${13 * s}px -apple-system, BlinkMacSystemFont, "Helvetica Neue", Helvetica, Arial, sans-serif`;
     ctx.fillStyle = 'rgba(255,255,255,0.75)';
-    ctx.fillText(planet.tagline, w / 2, cy + 74 * s);
+    ctx.fillText(planet.tagline, w / 2, cy + 64 * s);
     ctx.restore();
   }, []);
 
