@@ -214,7 +214,7 @@ const getWidthScale = (w) => w / BASE_W;
 // intervals) and proportional fields (shipX) are not scaled.
 // Per-level speed bonus (ref-units) added on top of baseSpeed. Indexed by
 // planetIdx (0 = Mercury / Level 1, 9 = The Void / Level 10).
-const LEVEL_SPEED_BONUS = [0, 0.3, 0.6, 1.0, 1.4, 1.8, 2.3, 2.8, 3.4, 4.0];
+const LEVEL_SPEED_BONUS = [0, 0.15, 0.3, 0.5, 0.7, 0.9, 1.15, 1.4, 1.7, 2.0];
 
 const PHYSICS_BASE = {
   gravity: 0.38,
