@@ -115,6 +115,13 @@ const DARK_TINT_PLANETS = new Set(['THE SUN']);
 const needsDarkTint = (planet) => DARK_TINT_PLANETS.has(planet.name);
 const FROSTED_TINT_LIGHT = 'rgba(255, 240, 220, 0.18)';
 const FROSTED_TINT_DARK = 'rgba(40, 25, 15, 0.35)';
+// Shared "fast Gaussian": render the offscreen scene into a 1/N-size canvas
+// with a small blur kernel once per frame; each frosted card upsamples a
+// region of it. The downsample + bilinear upscale do most of the blurring
+// for free, so the explicit blur radius can stay tiny — way cheaper than
+// running ctx.filter blur(20px) at full resolution per card per frame.
+const FROSTED_SCENE_DOWNSCALE = 4;
+const FROSTED_SCENE_BLUR_PX = 5;
 
 // ── Configurable constants ─────────────────────────────────────────
 // Set this to your deployed game URL. Used in the share-score snippet.
@@ -278,11 +285,14 @@ export default function StellarDrift() {
   const canvasRef = useRef(null);
   const containerRef = useRef(null);
   const offscreenRef = useRef(null);
-  // Per-card cache for frosted-glass HUD/menu cards. Each entry holds a
-  // pre-rendered card (shadow + blurred scene + tint + border + highlight)
-  // and a frame stamp. Refreshing every N frames instead of every frame
-  // turns three full ctx.filter blur passes per frame into ~one every four —
-  // big win on mobile where Canvas2D blur isn't reliably GPU-accelerated.
+  // Downsampled, pre-blurred copy of the offscreen scene. Updated once per
+  // frame so every frosted card can sample a fresh blur via a single cheap
+  // drawImage. Frosted cards no longer run ctx.filter per frame.
+  const blurredSceneRef = useRef(null);
+  // Per-card shadow cache. The drop shadow (shadowBlur=20px) is the only
+  // remaining expensive op in a frosted card; cache it per card and refresh
+  // only when the card resizes. Everything else (scene sample, tint, border,
+  // highlight) is cheap enough to redraw each frame.
   const cardCacheRef = useRef(null);
   const audioRef = useRef(null);
   const gsRef = useRef(null);
@@ -2347,142 +2357,132 @@ export default function StellarDrift() {
   }, []);
 
   // ─────────────────────────────────────────────────────────────
-  // FROSTED GLASS CARD — simulates backdrop-blur on canvas. The expensive
-  // step is sampling the offscreen scene through ctx.filter blur(20px);
-  // on mobile Canvas2D this is not reliably GPU-accelerated and running
-  // it 3× per frame (score / level / speed pills) was tanking framerate.
+  // FROSTED GLASS CARD — simulates backdrop-blur on canvas.
   //
-  // Strategy: pre-render the entire card (shadow + blurred scene + tint +
-  // border + highlight) into a per-card offscreen canvas keyed by `opts.id`,
-  // and refresh it every FROSTED_REFRESH_EVERY frames. Each game-loop frame
-  // we just blit the cached card — one cheap drawImage instead of a blur.
-  // The cached blur lags the scene by up to N-1 frames, which is invisible
-  // at this blur radius. Source coords use ×dpr because `off` is
-  // intrinsically dpr-scaled while we draw in CSS px.
+  // Per-frame cost is dominated by two blurs: the drop shadow (shadowBlur)
+  // and the scene sample (ctx.filter blur). Running both 3× per frame for
+  // the HUD pills tanks mobile framerate.
+  //
+  // Strategy here:
+  //  - Scene blur: one shared downsampled blur (`blurredSceneRef`) is
+  //    refreshed by the game loop every frame; each card just upsamples a
+  //    fresh region of it — no per-card filter blur, no caching lag.
+  //  - Shadow: cached per card (keyed by `opts.id`) and re-rendered only
+  //    when the card's size changes. Shadow geometry doesn't depend on
+  //    the moving scene, so this cache never goes stale.
+  //  - Tint, border, highlight: cheap; drawn fresh on the main ctx.
   // ─────────────────────────────────────────────────────────────
   const drawFrostedCard = useCallback((ctx, off, gs, x, y, w, h, opts = {}) => {
-    const { id, radius = 22, planet, refreshEvery = 4 } = opts;
+    const { id, radius = 22, planet } = opts;
     const useDarkTint = opts.useDarkTint != null
       ? opts.useDarkTint
       : (planet ? needsDarkTint(planet) : false);
     const s = gs.scale;
     const r = radius * s;
     const dpr = off && off.width > 0 ? off.width / gs.w : 1;
+    const bs = blurredSceneRef.current;
 
-    // Cache pad: shadowBlur=20*s extends outside the rounded rect, so the
-    // cache canvas needs slack around the card to hold the shadow.
+    // 1. Drop shadow — blit from per-card cache if we have an id, otherwise
+    // fall back to drawing it directly each frame. The cache only needs to
+    // refresh when the card resizes (e.g., score digit grows).
     const padCss = Math.ceil(28 * s);
     const cardW = w + padCss * 2;
     const cardH = h + padCss * 2;
-
-    if (!cardCacheRef.current) cardCacheRef.current = new Map();
-    const cache = cardCacheRef.current;
-    let entry = id ? cache.get(id) : null;
-    const wantW = Math.max(1, Math.ceil(cardW * dpr));
-    const wantH = Math.max(1, Math.ceil(cardH * dpr));
-    const sizeChanged = !entry || entry.canvas.width !== wantW || entry.canvas.height !== wantH;
-    if (id && sizeChanged) {
-      if (!entry) {
-        entry = { canvas: document.createElement('canvas'), lastFrame: -Infinity };
-        cache.set(id, entry);
+    if (id) {
+      if (!cardCacheRef.current) cardCacheRef.current = new Map();
+      const cache = cardCacheRef.current;
+      let shadowEntry = cache.get(id);
+      const wantW = Math.max(1, Math.ceil(cardW * dpr));
+      const wantH = Math.max(1, Math.ceil(cardH * dpr));
+      const sizeChanged = !shadowEntry
+        || shadowEntry.canvas.width !== wantW
+        || shadowEntry.canvas.height !== wantH;
+      if (sizeChanged) {
+        if (!shadowEntry) {
+          shadowEntry = { canvas: document.createElement('canvas') };
+          cache.set(id, shadowEntry);
+        }
+        shadowEntry.canvas.width = wantW;
+        shadowEntry.canvas.height = wantH;
+        const cctx = shadowEntry.canvas.getContext('2d');
+        cctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        cctx.clearRect(0, 0, cardW, cardH);
+        cctx.translate(padCss, padCss);
+        cctx.shadowColor = 'rgba(0, 0, 0, 0.25)';
+        cctx.shadowBlur = 20 * s;
+        cctx.shadowOffsetY = 8 * s;
+        cctx.fillStyle = 'rgba(0, 0, 0, 0.45)';
+        roundRect(cctx, 0, 0, w, h, r);
+        cctx.fill();
       }
-      entry.canvas.width = wantW;
-      entry.canvas.height = wantH;
-      entry.lastFrame = -Infinity;
-    }
-
-    const cacheable = id && off && off.width > 0;
-    const needsRender = !cacheable
-      || sizeChanged
-      || (gs.time - entry.lastFrame) >= refreshEvery;
-
-    // Target context to render into: either the per-card cache (preferred)
-    // or the main ctx directly (fallback for the first frame before `off`
-    // has any pixels). When rendering into the cache, all card-local draws
-    // use (0,0)-based coords and we translate by padCss so the shadow has
-    // room; the blit at the end places the result at (x - padCss, y - padCss).
-    const intoCache = cacheable && needsRender;
-    const drawDirect = !cacheable;
-
-    if (intoCache) {
-      entry.lastFrame = gs.time;
-      const cctx = entry.canvas.getContext('2d');
-      cctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      cctx.clearRect(0, 0, cardW, cardH);
-      cctx.translate(padCss, padCss);
-      paintCard(cctx, 0, 0);
-      cctx.setTransform(dpr, 0, 0, dpr, 0, 0); // reset translate for next refresh
-    } else if (drawDirect) {
-      paintCard(ctx, x, y);
-    }
-
-    if (cacheable && entry) {
       ctx.drawImage(
-        entry.canvas,
-        0, 0, entry.canvas.width, entry.canvas.height,
+        shadowEntry.canvas,
+        0, 0, shadowEntry.canvas.width, shadowEntry.canvas.height,
         x - padCss, y - padCss, cardW, cardH,
       );
+    } else {
+      ctx.save();
+      ctx.shadowColor = 'rgba(0, 0, 0, 0.25)';
+      ctx.shadowBlur = 20 * s;
+      ctx.shadowOffsetY = 8 * s;
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.45)';
+      roundRect(ctx, x, y, w, h, r);
+      ctx.fill();
+      ctx.restore();
     }
 
-    function paintCard(target, ox, oy) {
-      // 1. Drop shadow below the card (drawn first so it sits underneath).
-      target.save();
-      target.shadowColor = 'rgba(0, 0, 0, 0.25)';
-      target.shadowBlur = 20 * s;
-      target.shadowOffsetY = 8 * s;
-      target.fillStyle = 'rgba(0, 0, 0, 0.45)';
-      roundRect(target, ox, oy, w, h, r);
-      target.fill();
-      target.restore();
-
-      // 2. Blurred scene snapshot inside the card region (clip to rounded rect).
-      target.save();
-      roundRect(target, ox, oy, w, h, r);
-      target.clip();
-      if (off && off.width > 0) {
-        try {
-          const pad = 24 * s;
-          const sx = Math.max(0, x - pad);
-          const sy = Math.max(0, y - pad);
-          const sw = Math.min(gs.w - sx, w + pad * 2);
-          const sh = Math.min(gs.h - sy, h + pad * 2);
-          // When painting into the cache, the card's (ox, oy) is (0, 0) and
-          // we want global (x, y) to land at local (0, 0); when painting
-          // direct, (ox, oy) === (x, y) and the offset is zero.
-          const dx = sx - x + ox;
-          const dy = sy - y + oy;
-          target.filter = `blur(${20 * s}px)`;
-          target.drawImage(off, sx * dpr, sy * dpr, sw * dpr, sh * dpr, dx, dy, sw, sh);
-          target.filter = 'none';
-        } catch {
-          target.filter = 'none';
-        }
+    // 2. Fresh blurred scene snapshot inside the card region (clipped).
+    ctx.save();
+    roundRect(ctx, x, y, w, h, r);
+    ctx.clip();
+    const pad = 24 * s;
+    const sx = Math.max(0, x - pad);
+    const sy = Math.max(0, y - pad);
+    const sw = Math.min(gs.w - sx, w + pad * 2);
+    const sh = Math.min(gs.h - sy, h + pad * 2);
+    if (bs && bs.width > 0) {
+      // bs is downsampled: bs.width pixels span gs.w CSS px.
+      const sScaleX = bs.width / gs.w;
+      const sScaleY = bs.height / gs.h;
+      ctx.drawImage(
+        bs,
+        sx * sScaleX, sy * sScaleY, sw * sScaleX, sh * sScaleY,
+        sx, sy, sw, sh,
+      );
+    } else if (off && off.width > 0) {
+      // First-frame fallback before the shared blur exists.
+      try {
+        ctx.filter = `blur(${20 * s}px)`;
+        ctx.drawImage(off, sx * dpr, sy * dpr, sw * dpr, sh * dpr, sx, sy, sw, sh);
+        ctx.filter = 'none';
+      } catch {
+        ctx.filter = 'none';
       }
-      // 3. Warm tint overlay (dark variant for light-background planets like Sun).
-      target.fillStyle = useDarkTint ? FROSTED_TINT_DARK : FROSTED_TINT_LIGHT;
-      target.fillRect(ox, oy, w, h);
-      target.restore();
-
-      // 4. Border (1px white at 25%).
-      target.save();
-      target.strokeStyle = 'rgba(255, 255, 255, 0.25)';
-      target.lineWidth = 1;
-      roundRect(target, ox, oy, w, h, r);
-      target.stroke();
-      target.restore();
-
-      // 5. Inner top-edge highlight (subtle glass refraction).
-      target.save();
-      roundRect(target, ox, oy, w, h, r);
-      target.clip();
-      target.strokeStyle = 'rgba(255, 255, 255, 0.30)';
-      target.lineWidth = 1;
-      target.beginPath();
-      target.moveTo(ox + r * 0.55, oy + 0.5);
-      target.lineTo(ox + w - r * 0.55, oy + 0.5);
-      target.stroke();
-      target.restore();
     }
+    // 3. Warm tint overlay (dark variant for light-background planets like Sun).
+    ctx.fillStyle = useDarkTint ? FROSTED_TINT_DARK : FROSTED_TINT_LIGHT;
+    ctx.fillRect(x, y, w, h);
+    ctx.restore();
+
+    // 4. Border (1px white at 25%).
+    ctx.save();
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.25)';
+    ctx.lineWidth = 1;
+    roundRect(ctx, x, y, w, h, r);
+    ctx.stroke();
+    ctx.restore();
+
+    // 5. Inner top-edge highlight (subtle glass refraction).
+    ctx.save();
+    roundRect(ctx, x, y, w, h, r);
+    ctx.clip();
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.30)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(x + r * 0.55, y + 0.5);
+    ctx.lineTo(x + w - r * 0.55, y + 0.5);
+    ctx.stroke();
+    ctx.restore();
   }, []);
 
   const drawHUD = useCallback((ctx, gs, planet, speedMul, off) => {
@@ -3291,6 +3291,19 @@ export default function StellarDrift() {
 
       offCtx.restore();
 
+      // Refresh the shared downsampled-blur of the scene used by all
+      // frosted-glass cards this frame. One small blur per frame instead
+      // of three large ones per card.
+      const bs = blurredSceneRef.current;
+      if (bs && bs.width > 0) {
+        const bsCtx = bs.getContext('2d');
+        bsCtx.setTransform(1, 0, 0, 1, 0, 0);
+        bsCtx.clearRect(0, 0, bs.width, bs.height);
+        bsCtx.filter = `blur(${FROSTED_SCENE_BLUR_PX}px)`;
+        bsCtx.drawImage(off, 0, 0, bs.width, bs.height);
+        bsCtx.filter = 'none';
+      }
+
       // ── COMPOSITE TO MAIN CANVAS WITH BLOOM ──
       ctx.clearRect(0, 0, w, h);
       // Base. Destination size (w, h) is required: the offscreen canvas is
@@ -3381,6 +3394,12 @@ export default function StellarDrift() {
       off.style.height = `${h}px`;
       const offCtx = off.getContext('2d');
       offCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      // Allocate / resize the shared blurred-scene canvas to match `off`
+      // at 1/FROSTED_SCENE_DOWNSCALE intrinsic resolution.
+      if (!blurredSceneRef.current) blurredSceneRef.current = document.createElement('canvas');
+      const bs = blurredSceneRef.current;
+      bs.width = Math.max(1, Math.floor(off.width / FROSTED_SCENE_DOWNSCALE));
+      bs.height = Math.max(1, Math.floor(off.height / FROSTED_SCENE_DOWNSCALE));
             if (gsRef.current) {
         const prevW = gsRef.current.w;
         const prevH = gsRef.current.h;
