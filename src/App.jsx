@@ -109,6 +109,13 @@ const PLANETS = [
   },
 ];
 
+// Planets whose backgrounds are too light for a warm-white frosted tint
+// (text contrast drops). These get a warm dark amber tint instead.
+const DARK_TINT_PLANETS = new Set(['THE SUN']);
+const needsDarkTint = (planet) => DARK_TINT_PLANETS.has(planet.name);
+const FROSTED_TINT_LIGHT = 'rgba(255, 240, 220, 0.18)';
+const FROSTED_TINT_DARK = 'rgba(40, 25, 15, 0.35)';
+
 // ── Configurable constants ─────────────────────────────────────────
 // Set this to your deployed game URL. Used in the share-score snippet.
 const VERCEL_URL = 'https://stellar-drift.vercel.app';
@@ -278,6 +285,10 @@ export default function StellarDrift() {
   const initialSel = loadSelection();
   const [view, setView] = useState('start');
   const viewRef = useRef('start');
+  // Mirror of gs.planetIdx so DOM menus can derive frosted-glass tint and
+  // accent color from the player's current planet (gsRef is a render-unsafe
+  // imperative handle; reading it during render trips react-hooks lint rules).
+  const [currentPlanetIdx, setCurrentPlanetIdx] = useState(0);
   const [openPanel, setOpenPanel] = useState(null); // null | 'aliens' | 'leaderboard' | 'settings'
   const [fragments, setFragments] = useState(loadFragments());
   const [ownedAliens, setOwnedAliens] = useState(() => {
@@ -324,6 +335,7 @@ export default function StellarDrift() {
     if (gsRef.current) {
       gsRef.current.onFragmentChange = setFragments;
       gsRef.current.onView = setView;
+      gsRef.current.onPlanetChange = setCurrentPlanetIdx;
       gsRef.current.onLeaderboardEligible = setPendingEntry;
     }
   });
@@ -2328,56 +2340,125 @@ export default function StellarDrift() {
     });
   }, []);
 
-  const drawHUD = useCallback((ctx, gs, planet, speedMul) => {
+  // ─────────────────────────────────────────────────────────────
+  // FROSTED GLASS CARD — simulates backdrop-blur on canvas by re-sampling
+  // a region of the already-rendered offscreen scene through ctx.filter
+  // blur, then overlaying a warm whitish tint. Source coords need ×dpr
+  // because `off` is intrinsically dpr-scaled while we draw in CSS px.
+  // ─────────────────────────────────────────────────────────────
+  const drawFrostedCard = useCallback((ctx, off, gs, x, y, w, h, opts = {}) => {
+    const { radius = 22, planet } = opts;
+    const useDarkTint = opts.useDarkTint != null
+      ? opts.useDarkTint
+      : (planet ? needsDarkTint(planet) : false);
+    const s = gs.scale;
+    const r = radius * s;
+
+    // 1. Drop shadow below the card (drawn first so it sits underneath).
+    ctx.save();
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.25)';
+    ctx.shadowBlur = 20 * s;
+    ctx.shadowOffsetY = 8 * s;
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.45)';
+    roundRect(ctx, x, y, w, h, r);
+    ctx.fill();
+    ctx.restore();
+
+    // 2. Blurred scene snapshot inside the card region (clip to rounded rect).
+    ctx.save();
+    roundRect(ctx, x, y, w, h, r);
+    ctx.clip();
+    if (off && off.width > 0) {
+      try {
+        const dpr = off.width / gs.w;
+        const pad = 24 * s;
+        const sx = Math.max(0, x - pad);
+        const sy = Math.max(0, y - pad);
+        const sw = Math.min(gs.w - sx, w + pad * 2);
+        const sh = Math.min(gs.h - sy, h + pad * 2);
+        ctx.filter = `blur(${20 * s}px)`;
+        ctx.drawImage(off, sx * dpr, sy * dpr, sw * dpr, sh * dpr, sx, sy, sw, sh);
+        ctx.filter = 'none';
+      } catch {
+        ctx.filter = 'none';
+      }
+    }
+    // 3. Warm tint overlay (dark variant for light-background planets like Sun).
+    ctx.fillStyle = useDarkTint ? FROSTED_TINT_DARK : FROSTED_TINT_LIGHT;
+    ctx.fillRect(x, y, w, h);
+    ctx.restore();
+
+    // 4. Border (1px white at 25%).
+    ctx.save();
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.25)';
+    ctx.lineWidth = 1;
+    roundRect(ctx, x, y, w, h, r);
+    ctx.stroke();
+    ctx.restore();
+
+    // 5. Inner top-edge highlight (subtle glass refraction).
+    ctx.save();
+    roundRect(ctx, x, y, w, h, r);
+    ctx.clip();
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.30)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(x + r * 0.55, y + 0.5);
+    ctx.lineTo(x + w - r * 0.55, y + 0.5);
+    ctx.stroke();
+    ctx.restore();
+  }, []);
+
+  const drawHUD = useCallback((ctx, gs, planet, speedMul, off) => {
     const { w, score, best, planetIdx, obstaclesInPlanet, combo, comboTimer } = gs;
     const s = gs.scale;
 
-    // Score pill (centered, top)
+    // ── Score pill (centered, top) ──
     ctx.save();
     const scoreText = String(score);
-    ctx.font = `600 ${44 * s}px -apple-system, BlinkMacSystemFont, "Helvetica Neue", Helvetica, Arial, sans-serif`;
+    ctx.font = `200 ${36 * s}px -apple-system, BlinkMacSystemFont, "Helvetica Neue", Helvetica, Arial, sans-serif`;
     const sw = Math.max(110 * s, ctx.measureText(scoreText).width + 50 * s);
     const sx = (w - sw) / 2, sy = 14 * s;
-    const sh = 60 * s;
-    const sr = 22 * s;
-    ctx.fillStyle = 'rgba(10, 15, 25, 0.55)';
-    roundRect(ctx, sx, sy, sw, sh, sr);
-    ctx.fill();
-    // Border tint with accent
-    ctx.strokeStyle = `${planet.accent}40`;
-    ctx.lineWidth = 1;
-    roundRect(ctx, sx, sy, sw, sh, sr);
-    ctx.stroke();
-    // Score number
+    const sh = 56 * s;
+    drawFrostedCard(ctx, off, gs, sx, sy, sw, sh, { radius: 22, planet });
+    // Score number — pure white with accent glow
     ctx.fillStyle = '#ffffff';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.shadowColor = 'rgba(0,0,0,0.6)';
-    ctx.shadowBlur = 4 * s;
-    ctx.fillText(scoreText, w / 2, sy + 32 * s);
-    // BEST
-    ctx.font = `500 ${11 * s}px -apple-system, BlinkMacSystemFont, "Helvetica Neue", Helvetica, Arial, sans-serif`;
-    ctx.shadowBlur = 2 * s;
-    ctx.fillStyle = 'rgba(255,255,255,0.7)';
-    ctx.fillText(`BEST ${best}`, w / 2, sy + 53 * s);
+    ctx.shadowColor = planet.accent;
+    ctx.shadowBlur = 16 * s;
+    ctx.fillText(scoreText, w / 2, sy + sh / 2);
     ctx.restore();
 
-    // Score flash
+    // BEST label — sits BELOW the score pill, no background (label text)
+    ctx.save();
+    ctx.font = `600 ${11 * s}px -apple-system, BlinkMacSystemFont, "Helvetica Neue", Helvetica, Arial, sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.60)';
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.40)';
+    ctx.shadowBlur = 4;
+    ctx.shadowOffsetY = 1;
+    // Letter-spaced uppercase (approximate with spaces)
+    ctx.fillText(`BEST ${best}`, w / 2, sy + sh + 6 * s);
+    ctx.restore();
+
+    // Score flash (accent ring around the pill)
     if (gs.scoreFlash > 0) {
       ctx.save();
       ctx.globalAlpha = gs.scoreFlash / 10;
       ctx.strokeStyle = planet.accent;
       ctx.lineWidth = 2 * s;
-      roundRect(ctx, sx - 2 * s, sy - 2 * s, sw + 4 * s, 64 * s, 24 * s);
+      roundRect(ctx, sx - 2 * s, sy - 2 * s, sw + 4 * s, sh + 4 * s, 24 * s);
       ctx.stroke();
       ctx.restore();
       gs.scoreFlash--;
     }
 
-    // Combo bar
+    // Combo bar (moved down to clear the BEST label)
     if (combo > 1 && comboTimer > 0) {
       ctx.save();
-      const cx = (w - sw) / 2 + 10 * s, cy = sy + 64 * s;
+      const cx = (w - sw) / 2 + 10 * s, cy = sy + sh + 24 * s;
       const cw = sw - 20 * s;
       const fill = Math.min(1, comboTimer / 180);
       ctx.fillStyle = 'rgba(255,255,255,0.10)';
@@ -2392,18 +2473,16 @@ export default function StellarDrift() {
       ctx.restore();
     }
 
-    // Level badge top-left
+    // ── Level badge top-left ──
     ctx.save();
     const levelLabel = `${planetIdx + 1} · ${planet.name}`;
     ctx.font = `600 ${12 * s}px -apple-system, BlinkMacSystemFont, "Helvetica Neue", Helvetica, Arial, sans-serif`;
     const lw = Math.max(120 * s, ctx.measureText(levelLabel).width + 50 * s);
     const lx = 12 * s, ly = 14 * s, lh = 38 * s;
-    ctx.fillStyle = 'rgba(10, 15, 25, 0.55)';
-    roundRect(ctx, lx, ly, lw, lh, 18 * s);
-    ctx.fill();
-    // Progress arc
+    drawFrostedCard(ctx, off, gs, lx, ly, lw, lh, { radius: 18, planet });
+    // Progress arc (planet accent)
     const ax = lx + 18 * s, ay = ly + lh / 2, ar = 11 * s;
-    ctx.strokeStyle = 'rgba(255,255,255,0.20)';
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.25)';
     ctx.lineWidth = 2.5 * s;
     ctx.beginPath();
     ctx.arc(ax, ay, ar, -Math.PI / 2, Math.PI * 1.5);
@@ -2423,30 +2502,28 @@ export default function StellarDrift() {
     ctx.fillStyle = '#ffffff';
     ctx.textAlign = 'left';
     ctx.textBaseline = 'middle';
-    ctx.shadowColor = 'rgba(0,0,0,0.5)';
-    ctx.shadowBlur = 3 * s;
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.40)';
+    ctx.shadowBlur = 4;
     ctx.fillText(levelLabel, lx + 36 * s, ly + lh / 2);
     ctx.restore();
 
-    // Speed top-right
+    // ── Speed top-right ──
     ctx.save();
     const spdText = `${speedMul.toFixed(1)}×`;
     ctx.font = `600 ${13 * s}px -apple-system, BlinkMacSystemFont, "Helvetica Neue", Helvetica, Arial, sans-serif`;
     const tw = Math.max(60 * s, ctx.measureText(spdText).width + 26 * s);
     const tx = w - tw - 12 * s, ty = 14 * s, th = 38 * s;
-    ctx.fillStyle = 'rgba(10, 15, 25, 0.55)';
-    roundRect(ctx, tx, ty, tw, th, 18 * s);
-    ctx.fill();
+    drawFrostedCard(ctx, off, gs, tx, ty, tw, th, { radius: 18, planet });
     ctx.fillStyle = '#ffffff';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.shadowColor = 'rgba(0,0,0,0.5)';
-    ctx.shadowBlur = 3 * s;
+    ctx.shadowColor = planet.accent;
+    ctx.shadowBlur = 12 * s;
     ctx.fillText(spdText, tx + tw / 2, ty + th / 2);
     ctx.restore();
-  }, []);
+  }, [drawFrostedCard]);
 
-  const drawTransitionCard = useCallback((ctx, gs, w, h) => {
+  const drawTransitionCard = useCallback((ctx, gs, w, h, off) => {
     if (gs.transitionCard <= 0) return;
     const planet = PLANETS[gs.transitionCardPlanet];
     const s = gs.scale;
@@ -2460,36 +2537,61 @@ export default function StellarDrift() {
 
     ctx.save();
     ctx.globalAlpha = alpha;
-    const cw = Math.min(w - 60 * s, 320 * s), ch = 90 * s;
+    const cw = Math.min(w - 60 * s, 320 * s), ch = 112 * s;
     const cx = (w - cw) / 2, cy = 90 * s;
-    // Background with glow
-    ctx.shadowColor = planet.accent;
-    ctx.shadowBlur = 20 * s;
-    ctx.fillStyle = 'rgba(15, 20, 30, 0.50)';
+
+    // Frosted glass card
+    drawFrostedCard(ctx, off, gs, cx, cy, cw, ch, { radius: 22, planet });
+
+    // 2px accent border on top
+    ctx.strokeStyle = `${planet.accent}99`;
+    ctx.lineWidth = 2 * s;
     roundRect(ctx, cx, cy, cw, ch, 22 * s);
-    ctx.fill();
-    ctx.shadowBlur = 0;
-    // Planet number tag
-    ctx.font = `500 ${11 * s}px -apple-system, BlinkMacSystemFont, "Helvetica Neue", Helvetica, Arial, sans-serif`;
-    ctx.fillStyle = planet.accent;
+    ctx.stroke();
+
+    // Outer glow in the accent
+    ctx.save();
+    ctx.shadowColor = planet.accent;
+    ctx.shadowBlur = 24 * s;
+    ctx.strokeStyle = `${planet.accent}40`;
+    ctx.lineWidth = 1;
+    roundRect(ctx, cx, cy, cw, ch, 22 * s);
+    ctx.stroke();
+    ctx.restore();
+
     ctx.textAlign = 'center';
     ctx.textBaseline = 'top';
-    ctx.fillText(`PLANET ${gs.transitionCardPlanet + 1} OF ${PLANETS.length}`, w / 2, cy + 12 * s);
-    // Planet name
-    ctx.font = `600 ${26 * s}px -apple-system, BlinkMacSystemFont, "Helvetica Neue", Helvetica, Arial, sans-serif`;
-    ctx.fillStyle = '#ffffff';
-    ctx.fillText(planet.name, w / 2, cy + 30 * s);
-    // Tagline
-    ctx.font = `400 ${13 * s}px -apple-system, BlinkMacSystemFont, "Helvetica Neue", Helvetica, Arial, sans-serif`;
-    ctx.fillStyle = 'rgba(255,255,255,0.75)';
-    ctx.fillText(planet.tagline, w / 2, cy + 64 * s);
+
+    // PLANET N OF 10 — label text
+    ctx.font = `600 ${11 * s}px -apple-system, BlinkMacSystemFont, "Helvetica Neue", Helvetica, Arial, sans-serif`;
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.60)';
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.40)';
+    ctx.shadowBlur = 4;
+    ctx.fillText(`PLANET ${gs.transitionCardPlanet + 1} OF ${PLANETS.length}`, w / 2, cy + 18 * s);
+    ctx.shadowBlur = 0;
+
+    // Planet name — 28px in the planet's accent color (heading)
+    ctx.font = `600 ${28 * s}px -apple-system, BlinkMacSystemFont, "Helvetica Neue", Helvetica, Arial, sans-serif`;
+    ctx.fillStyle = planet.accent;
+    ctx.shadowColor = planet.accent;
+    ctx.shadowBlur = 14 * s;
+    ctx.fillText(planet.name, w / 2, cy + 38 * s);
+    ctx.shadowBlur = 0;
+
+    // Tagline — italic 13px, secondary white
+    ctx.font = `italic 400 ${13 * s}px -apple-system, BlinkMacSystemFont, "Helvetica Neue", Helvetica, Arial, sans-serif`;
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.75)';
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.40)';
+    ctx.shadowBlur = 4;
+    ctx.fillText(planet.tagline, w / 2, cy + 78 * s);
     ctx.restore();
-  }, []);
+  }, [drawFrostedCard]);
 
   const drawStartScreen = useCallback((ctx, gs, w, h) => {
     // The DOM overlay (StartMenuOverlay) draws title, stats, PLAY, and roster.
-    // Canvas keeps only a soft accent glow behind the alien character.
+    // Canvas keeps only a soft accent glow + a floating platform under the alien.
     const planet = PLANETS[gs.planetIdx];
+    const s = gs.scale;
     ctx.save();
     const glow = ctx.createRadialGradient(w / 2, h * 0.55, 0, w / 2, h * 0.55, Math.min(w, h) * 0.45);
     glow.addColorStop(0, `${planet.accent}30`);
@@ -2498,13 +2600,76 @@ export default function StellarDrift() {
     ctx.fillStyle = glow;
     ctx.fillRect(0, 0, w, h);
     ctx.restore();
+
+    // Floating platform below the hero alien (rounded ellipse in the planet's
+    // secondary column color with a soft shadow underneath).
+    const px = w * 0.28;     // matches gs.phys.shipX (where the alien stands)
+    const py = h * 0.5 + 42 * s;  // a bit below the alien's idle position
+    const pw = 78 * s;
+    const ph = 14 * s;
+    // Soft shadow under the platform
+    ctx.save();
+    const shadowGrad = ctx.createRadialGradient(px, py + 10 * s, 0, px, py + 10 * s, pw * 0.7);
+    shadowGrad.addColorStop(0, 'rgba(0, 0, 0, 0.35)');
+    shadowGrad.addColorStop(1, 'rgba(0, 0, 0, 0)');
+    ctx.fillStyle = shadowGrad;
+    ctx.beginPath();
+    ctx.ellipse(px, py + 10 * s, pw * 0.7, ph * 0.8, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+    // Platform body
+    ctx.save();
+    const platGrad = ctx.createLinearGradient(px - pw / 2, py, px + pw / 2, py);
+    platGrad.addColorStop(0, planet.columnSide);
+    platGrad.addColorStop(0.5, planet.columnFront);
+    platGrad.addColorStop(1, planet.columnSide);
+    ctx.fillStyle = platGrad;
+    ctx.beginPath();
+    ctx.ellipse(px, py, pw / 2, ph / 2, 0, 0, Math.PI * 2);
+    ctx.fill();
+    // Top highlight (catches light)
+    ctx.fillStyle = `${planet.columnEdge}88`;
+    ctx.beginPath();
+    ctx.ellipse(px, py - ph * 0.2, pw / 2 * 0.85, ph * 0.18, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
   }, []);
 
-  const drawDeathScreen = useCallback((ctx, gs, w, h, t) => {
+  // Sad alien — drawn small at the top of the death card. Uses the SAFE
+  // fallback variant from the design spec: 70% opacity, slow gentle sway,
+  // melancholy blue-tinted glow underneath, and NO facial modifications
+  // (each alien has bespoke eye/mouth geometry; modifying every variant
+  // safely was too risky, so we keep the silhouette intact).
+  const drawSadAlien = useCallback((ctx, x, y, planet, t, scale, alienId, hatId) => {
+    ctx.save();
+    ctx.globalAlpha = 0.7;
+    // Blue-tinted halo underneath
+    const haloR = 26 * scale;
+    const halo = ctx.createRadialGradient(x, y + 4 * scale, 0, x, y + 4 * scale, haloR);
+    halo.addColorStop(0, 'rgba(130, 170, 220, 0.45)');
+    halo.addColorStop(0.6, 'rgba(130, 170, 220, 0.15)');
+    halo.addColorStop(1, 'rgba(130, 170, 220, 0)');
+    ctx.fillStyle = halo;
+    ctx.beginPath();
+    ctx.arc(x, y + 4 * scale, haloR, 0, Math.PI * 2);
+    ctx.fill();
+    // Gentle sway: ±5deg over 2s (≈120 frames at 60fps)
+    const sway = Math.sin(t * (2 * Math.PI / 120)) * (5 * Math.PI / 180);
+    const fakeShip = {
+      x, y, vx: 0, vy: 0,
+      tilt: sway,
+      idleT: 0,
+      trail: [],
+    };
+    drawShip(ctx, fakeShip, planet, t, scale, alienId, hatId);
+    ctx.restore();
+  }, [drawShip]);
+
+  const drawDeathScreen = useCallback((ctx, gs, w, h, t, off) => {
     const overlay = Math.min(1, gs.deathOverlay / 20);
     const s = gs.scale;
     ctx.save();
-    ctx.fillStyle = `rgba(5, 10, 18, ${overlay * 0.72})`;
+    ctx.fillStyle = `rgba(5, 10, 18, ${overlay * 0.65})`;
     ctx.fillRect(0, 0, w, h);
     ctx.restore();
 
@@ -2515,57 +2680,69 @@ export default function StellarDrift() {
     ctx.save();
     ctx.globalAlpha = Math.min(1, cardAlpha);
     const cw = Math.min(w - 50 * s, 320 * s);
-    const ch = 180 * s;
+    const ch = 240 * s;
     const cx = (w - cw) / 2;
     const cy = (h - ch) / 2 - 40 * s;
 
-    // Card
-    ctx.fillStyle = 'rgba(15, 22, 35, 0.92)';
-    roundRect(ctx, cx, cy, cw, ch, 22 * s);
-    ctx.fill();
-    ctx.strokeStyle = `${planet.accent}50`;
-    ctx.lineWidth = 1;
+    // Frosted glass card
+    drawFrostedCard(ctx, off, gs, cx, cy, cw, ch, { radius: 22, planet });
+
+    // 1.5px accent border on top
+    ctx.strokeStyle = `${planet.accent}80`;
+    ctx.lineWidth = 1.5 * s;
     roundRect(ctx, cx, cy, cw, ch, 22 * s);
     ctx.stroke();
+
+    // Sad alien at the top of the card (60% of normal in-game scale)
+    drawSadAlien(ctx, w / 2, cy + 44 * s, planet, t, s * 0.6, gs.alienId, gs.hatId);
 
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
 
-    // "JOURNEY ENDED"
-    ctx.font = `500 ${12 * s}px -apple-system, BlinkMacSystemFont, "Helvetica Neue", Helvetica, Arial, sans-serif`;
-    ctx.fillStyle = 'rgba(255,255,255,0.6)';
-    ctx.fillText('JOURNEY ENDED', w / 2, cy + 28 * s);
-
-    // Final score
-    ctx.font = `300 ${64 * s}px -apple-system, BlinkMacSystemFont, "Helvetica Neue", Helvetica, Arial, sans-serif`;
-    ctx.fillStyle = '#ffffff';
-    ctx.shadowColor = 'rgba(0,0,0,0.5)';
-    ctx.shadowBlur = 6 * s;
-    ctx.fillText(String(gs.score), w / 2, cy + 78 * s);
+    // "JOURNEY ENDED" — 10px uppercase label
+    ctx.font = `600 ${10 * s}px -apple-system, BlinkMacSystemFont, "Helvetica Neue", Helvetica, Arial, sans-serif`;
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.60)';
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.40)';
+    ctx.shadowBlur = 4;
+    ctx.fillText('JOURNEY ENDED', w / 2, cy + 104 * s);
     ctx.shadowBlur = 0;
 
-    // Planet reached
-    ctx.font = `500 ${13 * s}px -apple-system, BlinkMacSystemFont, "Helvetica Neue", Helvetica, Arial, sans-serif`;
-    ctx.fillStyle = planet.accent;
-    ctx.fillText(`Reached · ${planet.name}`, w / 2, cy + 122 * s);
+    // Final score — 56px weight 200, accent glow
+    ctx.font = `200 ${56 * s}px -apple-system, BlinkMacSystemFont, "Helvetica Neue", Helvetica, Arial, sans-serif`;
+    ctx.fillStyle = '#ffffff';
+    ctx.shadowColor = planet.accent;
+    ctx.shadowBlur = 16 * s;
+    ctx.fillText(String(gs.score), w / 2, cy + 148 * s);
+    ctx.shadowBlur = 0;
 
-    // Best
+    // REACHED PLANET — accent color
+    ctx.font = `600 ${12 * s}px -apple-system, BlinkMacSystemFont, "Helvetica Neue", Helvetica, Arial, sans-serif`;
+    ctx.fillStyle = planet.accent;
+    ctx.shadowColor = planet.accent;
+    ctx.shadowBlur = 10 * s;
+    ctx.fillText(`REACHED ${planet.name}`, w / 2, cy + 188 * s);
+    ctx.shadowBlur = 0;
+
+    // Best — body text
     if (gs.newBest) {
       const glowPulse = 0.5 + 0.5 * Math.sin(t * 0.15);
       ctx.font = `600 ${13 * s}px -apple-system, BlinkMacSystemFont, "Helvetica Neue", Helvetica, Arial, sans-serif`;
       ctx.fillStyle = '#ffffff';
       ctx.shadowColor = planet.accent;
       ctx.shadowBlur = (8 + glowPulse * 8) * s;
-      ctx.fillText(`★ NEW BEST · ${gs.best}`, w / 2, cy + 148 * s);
+      ctx.fillText(`★ NEW BEST · ${gs.best}`, w / 2, cy + 214 * s);
       ctx.shadowBlur = 0;
     } else {
-      ctx.font = `500 ${12 * s}px -apple-system, BlinkMacSystemFont, "Helvetica Neue", Helvetica, Arial, sans-serif`;
-      ctx.fillStyle = 'rgba(255,255,255,0.55)';
-      ctx.fillText(`Best · ${gs.best}`, w / 2, cy + 148 * s);
+      ctx.font = `400 ${13 * s}px -apple-system, BlinkMacSystemFont, "Helvetica Neue", Helvetica, Arial, sans-serif`;
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.75)';
+      ctx.shadowColor = 'rgba(0, 0, 0, 0.40)';
+      ctx.shadowBlur = 4;
+      ctx.fillText(`Best · ${gs.best}`, w / 2, cy + 214 * s);
+      ctx.shadowBlur = 0;
     }
 
     ctx.restore();
-  }, []);
+  }, [drawFrostedCard, drawSadAlien]);
 
   // ─────────────────────────────────────────────────────────────
   // GAME LOGIC
@@ -2741,6 +2918,12 @@ export default function StellarDrift() {
       if (gs.state !== gs._lastViewSeen) {
         gs._lastViewSeen = gs.state;
         if (gs.onView) gs.onView(gs.state);
+      }
+      // Mirror gs.planetIdx into React so menu surfaces (frosted tints, accent
+      // glows, leaderboard player-row highlight) update as the player advances.
+      if (gs.planetIdx !== gs._lastPlanetSeen) {
+        gs._lastPlanetSeen = gs.planetIdx;
+        if (gs.onPlanetChange) gs.onPlanetChange(gs.planetIdx);
       }
 
       // Resolve current planet & speed at top so HUD always has it
@@ -3066,21 +3249,22 @@ export default function StellarDrift() {
         ctx.restore();
       }
 
-      // HUD (only in playing/dead, not start)
+      // HUD (only in playing/dead, not start). Pass `off` so the frosted
+      // cards can sample and blur the rendered scene behind them.
       if (gs.state === 'playing' || gs.state === 'dead') {
-        drawHUD(ctx, gs, planet, speedMul);
+        drawHUD(ctx, gs, planet, speedMul, off);
       }
 
       // Transition card overlay
       if (gs.transitionCard > 0) {
-        drawTransitionCard(ctx, gs, w, h);
+        drawTransitionCard(ctx, gs, w, h, off);
       }
 
       // Start / Death screens
       if (gs.state === 'start') {
         drawStartScreen(ctx, gs, w, h);
       } else if (gs.state === 'dead') {
-        drawDeathScreen(ctx, gs, w, h, gs.time);
+        drawDeathScreen(ctx, gs, w, h, gs.time, off);
       }
     } catch (err) {
       console.error('[STELLAR DRIFT] loop error', err);
@@ -3171,6 +3355,7 @@ export default function StellarDrift() {
         // hide when the game transitions to 'playing'.
         gsRef.current.onFragmentChange = setFragments;
         gsRef.current.onView = setView;
+        gsRef.current.onPlanetChange = setCurrentPlanetIdx;
         gsRef.current.onLeaderboardEligible = setPendingEntry;
       }
 
@@ -3427,76 +3612,95 @@ export default function StellarDrift() {
           }}
         />
 
-        {/* Start menu — arcade card layout */}
-        {view === 'start' && !openPanel && (
-          <StartMenuOverlay
-            fragments={fragments}
-            best={parseInt(localStorage.getItem('stellardrift_best') || '0', 10)}
-            ownedAliens={ownedAliens}
-            selectedAlien={selectedAlien}
-            selectedHat={selectedHat}
-            onSelectAlien={handleSelectAlien}
-            onPlay={handlePlay}
-            onOpenPanel={handleOpenPanel}
-          />
-        )}
+        {/* `currentPlanet` drives frosted-glass tint (light→dark on the Sun)
+            and accent color across all menus. It mirrors gs.planetIdx via the
+            onPlanetChange callback, so it follows the player into each level. */}
+        {(() => {
+          const currentPlanet = PLANETS[currentPlanetIdx] || PLANETS[0];
+          return (
+            <>
+              {/* Start menu — arcade card layout */}
+              {view === 'start' && !openPanel && (
+                <StartMenuOverlay
+                  fragments={fragments}
+                  best={parseInt(localStorage.getItem('stellardrift_best') || '0', 10)}
+                  ownedAliens={ownedAliens}
+                  selectedAlien={selectedAlien}
+                  selectedHat={selectedHat}
+                  planet={currentPlanet}
+                  onSelectAlien={handleSelectAlien}
+                  onPlay={handlePlay}
+                  onOpenPanel={handleOpenPanel}
+                />
+              )}
 
-        {/* Death menu — replay + share when there's no pending initials entry */}
-        {view === 'dead' && !pendingEntry && (
-          <DeathOverlay
-            score={gsRef.current?.score || 0}
-            planet={PLANETS[gsRef.current?.planetIdx || 0].name}
-            onRetry={handlePlay}
-            onShare={handleShareScore}
-            onLeaderboard={() => handleOpenPanel('leaderboard')}
-            onMenu={handleBackToMenu}
-          />
-        )}
+              {/* Death menu — replay + share when there's no pending initials entry.
+                  Score is read from the ref by the share-callback closure rather
+                  than during render, sidestepping react-hooks/refs lint. */}
+              {view === 'dead' && !pendingEntry && (
+                <DeathOverlay
+                  planet={currentPlanet}
+                  onRetry={handlePlay}
+                  onShare={() => {
+                    const s = gsRef.current?.score || 0;
+                    handleShareScore(s, currentPlanet.name);
+                  }}
+                  onLeaderboard={() => handleOpenPanel('leaderboard')}
+                  onMenu={handleBackToMenu}
+                />
+              )}
 
-        {/* Initials entry modal when score qualifies for the leaderboard */}
-        {pendingEntry && (
-          <InitialsModal
-            entry={pendingEntry}
-            initials={initials}
-            onChange={setInitials}
-            onSubmit={handleSubmitInitials}
-          />
-        )}
+              {/* Initials entry modal when score qualifies for the leaderboard */}
+              {pendingEntry && (
+                <InitialsModal
+                  entry={pendingEntry}
+                  initials={initials}
+                  onChange={setInitials}
+                  onSubmit={handleSubmitInitials}
+                  planet={currentPlanet}
+                />
+              )}
 
-        {/* Panels */}
-        {openPanel === 'aliens' && (
-          <AliensPanel
-            fragments={fragments}
-            ownedAliens={ownedAliens}
-            ownedHats={ownedHats}
-            selectedAlien={selectedAlien}
-            selectedHat={selectedHat}
-            onSelectAlien={handleSelectAlien}
-            onSelectHat={handleSelectHat}
-            onUnlockAlien={handleUnlockAlien}
-            onUnlockHat={handleUnlockHat}
-            onClose={handleClosePanel}
-          />
-        )}
-        {openPanel === 'leaderboard' && (
-          <LeaderboardPanel
-            entries={leaderboard}
-            highlightId={lastEntryId}
-            onShare={handleShareScore}
-            onClose={handleClosePanel}
-          />
-        )}
-        {openPanel === 'settings' && (
-          <SettingsPanel
-            muted={muted}
-            vibration={vibration}
-            colorBlind={colorBlind}
-            onMutedChange={setMuted}
-            onVibrationChange={setVibration}
-            onColorBlindChange={setColorBlind}
-            onClose={handleClosePanel}
-          />
-        )}
+              {/* Panels */}
+              {openPanel === 'aliens' && (
+                <AliensPanel
+                  fragments={fragments}
+                  ownedAliens={ownedAliens}
+                  ownedHats={ownedHats}
+                  selectedAlien={selectedAlien}
+                  selectedHat={selectedHat}
+                  planet={currentPlanet}
+                  onSelectAlien={handleSelectAlien}
+                  onSelectHat={handleSelectHat}
+                  onUnlockAlien={handleUnlockAlien}
+                  onUnlockHat={handleUnlockHat}
+                  onClose={handleClosePanel}
+                />
+              )}
+              {openPanel === 'leaderboard' && (
+                <LeaderboardPanel
+                  entries={leaderboard}
+                  highlightId={lastEntryId}
+                  planet={currentPlanet}
+                  onShare={handleShareScore}
+                  onClose={handleClosePanel}
+                />
+              )}
+              {openPanel === 'settings' && (
+                <SettingsPanel
+                  muted={muted}
+                  vibration={vibration}
+                  colorBlind={colorBlind}
+                  planet={currentPlanet}
+                  onMutedChange={setMuted}
+                  onVibrationChange={setVibration}
+                  onColorBlindChange={setColorBlind}
+                  onClose={handleClosePanel}
+                />
+              )}
+            </>
+          );
+        })()}
 
         {/* Transient share-success toast */}
         {shareToast && (
@@ -3564,21 +3768,62 @@ export default function StellarDrift() {
 // MENU UI COMPONENTS (DOM overlays on the canvas)
 // ═══════════════════════════════════════════════════════════════
 
-const cardStyle = {
-  background: 'rgba(18, 24, 38, 0.82)',
-  backdropFilter: 'blur(22px) saturate(140%)',
-  WebkitBackdropFilter: 'blur(22px) saturate(140%)',
-  border: '1px solid rgba(255,255,255,0.10)',
-  borderRadius: 28,
-  boxShadow: '0 24px 64px rgba(0,0,0,0.55)',
-  color: '#ffffff',
-  WebkitTapHighlightColor: 'transparent',
+// Frosted glass design tokens. `frostedCardStyle()` returns the main panel
+// card style; pass a planet so dark-tinted planets (e.g., The Sun) get the
+// readable warm-amber variant. `frostedSubCardStyle()` is for nested cards
+// (alien tiles, hat tiles, leaderboard rows).
+const frostedCardStyle = (planet) => {
+  const dark = planet ? needsDarkTint(planet) : false;
+  return {
+    background: dark ? FROSTED_TINT_DARK : FROSTED_TINT_LIGHT,
+    backdropFilter: 'blur(24px) saturate(140%)',
+    WebkitBackdropFilter: 'blur(24px) saturate(140%)',
+    border: '1px solid rgba(255, 255, 255, 0.25)',
+    borderRadius: 22,
+    boxShadow: '0 8px 40px rgba(0, 0, 0, 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.3)',
+    color: '#ffffff',
+    WebkitTapHighlightColor: 'transparent',
+  };
+};
+
+const frostedSubCardStyle = (planet, selected, accent) => {
+  const dark = planet ? needsDarkTint(planet) : false;
+  const base = dark
+    ? 'rgba(20, 12, 8, 0.30)'
+    : 'rgba(255, 255, 255, 0.10)';
+  const selBase = dark
+    ? 'rgba(40, 25, 15, 0.50)'
+    : 'rgba(255, 255, 255, 0.22)';
+  return {
+    background: selected ? selBase : base,
+    border: selected
+      ? `1px solid ${accent || 'rgba(255, 255, 255, 0.40)'}66`
+      : '1px solid rgba(255, 255, 255, 0.18)',
+    borderRadius: 18,
+    backdropFilter: 'blur(12px)',
+    WebkitBackdropFilter: 'blur(12px)',
+    boxShadow: selected ? `0 0 24px ${accent || '#ffffff'}26` : 'none',
+    color: '#ffffff',
+  };
+};
+
+// Primary text style — pure white with the spec-mandated soft shadow.
+const textShadowPrimary = '0 1px 4px rgba(0, 0, 0, 0.4)';
+const textShadowSubtle = '0 1px 3px rgba(0, 0, 0, 0.35)';
+// Label text — uppercase, 11px, 600, letter-spaced.
+const labelStyle = {
+  fontSize: 11,
+  fontWeight: 600,
+  letterSpacing: '0.10em',
+  textTransform: 'uppercase',
+  color: 'rgba(255, 255, 255, 0.60)',
+  textShadow: textShadowSubtle,
 };
 
 const overlayBackdropStyle = {
   position: 'absolute',
   inset: 0,
-  background: 'rgba(4, 6, 12, 0.55)',
+  background: 'rgba(4, 6, 12, 0.45)',
   backdropFilter: 'blur(4px)',
   WebkitBackdropFilter: 'blur(4px)',
   display: 'flex',
@@ -3626,25 +3871,29 @@ function Icon({ name, size = 22, color = 'currentColor' }) {
   return null;
 }
 
-function StartMenuOverlay({ fragments, best, ownedAliens, selectedAlien, selectedHat, onSelectAlien, onPlay, onOpenPanel }) {
+function StartMenuOverlay({ fragments, best, ownedAliens, selectedAlien, selectedHat, planet, onSelectAlien, onPlay, onOpenPanel }) {
   // "Level" stat = highest planet reached. 15 obstacles per planet.
   const levelReached = Math.min(10, 1 + Math.floor((best || 0) / 15));
+  const accent = planet?.accent || '#ffffff';
+  const dark = planet ? needsDarkTint(planet) : false;
+  const tint = dark ? FROSTED_TINT_DARK : FROSTED_TINT_LIGHT;
 
+  // Frosted icon button — small (36px) circular for the top-right toolbar.
   const iconButtonStyle = {
-    width: 42,
-    height: 42,
-    borderRadius: 14,
-    border: '1px solid rgba(255,255,255,0.12)',
-    background: 'rgba(18, 24, 38, 0.55)',
-    backdropFilter: 'blur(14px)',
-    WebkitBackdropFilter: 'blur(14px)',
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    border: '1px solid rgba(255, 255, 255, 0.25)',
+    background: tint,
+    backdropFilter: 'blur(24px) saturate(140%)',
+    WebkitBackdropFilter: 'blur(24px) saturate(140%)',
     color: '#ffffff',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
     cursor: 'pointer',
     outline: 'none',
-    boxShadow: '0 8px 20px rgba(0,0,0,0.35)',
+    boxShadow: '0 6px 18px rgba(0, 0, 0, 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.3)',
   };
 
   return (
@@ -3666,70 +3915,78 @@ function StartMenuOverlay({ fragments, best, ownedAliens, selectedAlien, selecte
       >
         <div
           style={{
-            padding: '8px 14px',
+            padding: '7px 14px',
             borderRadius: 22,
-            background: 'rgba(18, 24, 38, 0.65)',
-            backdropFilter: 'blur(14px)',
-            WebkitBackdropFilter: 'blur(14px)',
-            border: '1px solid rgba(255,255,255,0.10)',
+            background: tint,
+            backdropFilter: 'blur(24px) saturate(140%)',
+            WebkitBackdropFilter: 'blur(24px) saturate(140%)',
+            border: '1px solid rgba(255, 255, 255, 0.25)',
             color: '#ffffff',
-            fontSize: 14,
+            fontSize: 13,
             fontWeight: 600,
             display: 'flex',
             alignItems: 'center',
             gap: 6,
-            boxShadow: '0 6px 18px rgba(0,0,0,0.32)',
+            boxShadow: '0 6px 18px rgba(0, 0, 0, 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.3)',
+            textShadow: textShadowPrimary,
           }}
         >
-          <Icon name="star" size={16} color="#f5d878" />
+          <Icon name="star" size={15} color="#f5d878" />
           <span>{fragments.toLocaleString()}</span>
         </div>
-        <div style={{ display: 'flex', gap: 10, pointerEvents: 'auto' }} onMouseDown={stopProp} onTouchStart={stopProp}>
+        <div style={{ display: 'flex', gap: 8, pointerEvents: 'auto' }} onMouseDown={stopProp} onTouchStart={stopProp}>
           <button className="sd-btn" onClick={() => onOpenPanel('leaderboard')} aria-label="Ranks" style={iconButtonStyle}>
-            <Icon name="trophy" size={20} />
+            <Icon name="trophy" size={18} />
           </button>
           <button className="sd-btn" onClick={() => onOpenPanel('settings')} aria-label="Settings" style={iconButtonStyle}>
-            <Icon name="gear" size={20} />
+            <Icon name="gear" size={18} />
           </button>
         </div>
       </div>
 
-      {/* Title plate + stat tiles — top-middle */}
+      {/* Elegant title — no background card, pure white text with soft shadow */}
       <div
         style={{
           position: 'absolute',
-          top: 'calc(78px + env(safe-area-inset-top, 0px))',
+          top: 'calc(80px + env(safe-area-inset-top, 0px))',
           left: 0,
           right: 0,
           display: 'flex',
           flexDirection: 'column',
           alignItems: 'center',
-          gap: 14,
+          gap: 18,
           pointerEvents: 'none',
           animation: 'sd-overlay-in 0.6s ease-out 0.1s both',
           zIndex: 4,
         }}
       >
-        {/* Title plate */}
-        <div
-          style={{
-            padding: '10px 22px',
-            borderRadius: 18,
-            background: 'linear-gradient(180deg, rgba(40,52,82,0.85) 0%, rgba(18,24,38,0.85) 100%)',
-            border: '1px solid rgba(255,255,255,0.18)',
-            backdropFilter: 'blur(16px)',
-            WebkitBackdropFilter: 'blur(16px)',
-            boxShadow: '0 10px 30px rgba(0,0,0,0.45), inset 0 1px 0 rgba(255,255,255,0.12)',
-            color: '#ffffff',
-            fontSize: 22,
-            fontWeight: 700,
-            letterSpacing: 4,
-          }}
-        >
-          STELLAR DRIFT
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
+          <div
+            style={{
+              color: '#ffffff',
+              fontSize: 44,
+              fontWeight: 300,
+              letterSpacing: '0.06em',
+              textShadow: `0 2px 12px rgba(0, 0, 0, 0.45), 0 0 32px ${accent}40`,
+            }}
+          >
+            STELLAR DRIFT
+          </div>
+          <div
+            style={{
+              color: 'rgba(255, 255, 255, 0.70)',
+              fontSize: 13,
+              fontStyle: 'italic',
+              fontWeight: 400,
+              letterSpacing: '0.04em',
+              textShadow: textShadowSubtle,
+            }}
+          >
+            A voyage through the solar system
+          </div>
         </div>
-        {/* Stat tiles row */}
-        <div style={{ display: 'flex', gap: 12 }}>
+        {/* BEST + LEVEL pills — 60% of original size, side-by-side, frosted */}
+        <div style={{ display: 'flex', gap: 8 }}>
           {[
             { label: 'BEST', value: best || 0 },
             { label: 'LEVEL', value: levelReached },
@@ -3737,20 +3994,28 @@ function StartMenuOverlay({ fragments, best, ownedAliens, selectedAlien, selecte
             <div
               key={t.label}
               style={{
-                width: 92,
-                padding: '10px 8px',
+                width: 56,
+                padding: '7px 6px',
                 borderRadius: 14,
-                background: 'rgba(18, 24, 38, 0.65)',
-                border: '1px solid rgba(255,255,255,0.10)',
-                backdropFilter: 'blur(14px)',
-                WebkitBackdropFilter: 'blur(14px)',
+                background: tint,
+                border: '1px solid rgba(255, 255, 255, 0.25)',
+                backdropFilter: 'blur(24px) saturate(140%)',
+                WebkitBackdropFilter: 'blur(24px) saturate(140%)',
                 color: '#ffffff',
                 textAlign: 'center',
-                boxShadow: '0 6px 18px rgba(0,0,0,0.32)',
+                boxShadow: '0 6px 18px rgba(0, 0, 0, 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.3)',
               }}
             >
-              <div style={{ fontSize: 10, letterSpacing: 1.4, opacity: 0.55, fontWeight: 500 }}>{t.label}</div>
-              <div style={{ fontSize: 24, fontWeight: 700, marginTop: 2 }}>{t.value}</div>
+              <div style={{
+                fontSize: 9, letterSpacing: '0.10em', fontWeight: 600,
+                color: 'rgba(255, 255, 255, 0.60)',
+                textTransform: 'uppercase',
+              }}>{t.label}</div>
+              <div style={{
+                fontSize: 16, fontWeight: 600, marginTop: 1,
+                color: '#ffffff',
+                textShadow: `0 0 12px ${accent}`,
+              }}>{t.value}</div>
             </div>
           ))}
         </div>
@@ -3773,6 +4038,7 @@ function StartMenuOverlay({ fragments, best, ownedAliens, selectedAlien, selecte
         onTouchStart={stopProp}
         onMouseDown={stopProp}
       >
+        {/* Large frosted PLAY capsule with planet-accent edge glow */}
         <button
           className="sd-btn sd-btn-primary"
           onClick={onPlay}
@@ -3780,37 +4046,39 @@ function StartMenuOverlay({ fragments, best, ownedAliens, selectedAlien, selecte
           style={{
             padding: '16px 64px',
             borderRadius: 32,
-            border: '1px solid rgba(255,255,255,0.25)',
-            background: 'linear-gradient(180deg, rgba(255,255,255,0.22) 0%, rgba(255,255,255,0.08) 100%)',
-            backdropFilter: 'blur(16px)',
-            WebkitBackdropFilter: 'blur(16px)',
+            border: `1px solid ${accent}66`,
+            background: tint,
+            backdropFilter: 'blur(24px) saturate(140%)',
+            WebkitBackdropFilter: 'blur(24px) saturate(140%)',
             color: '#ffffff',
-            fontSize: 20,
-            fontWeight: 700,
-            letterSpacing: 3,
+            fontSize: 18,
+            fontWeight: 600,
+            letterSpacing: '0.10em',
             display: 'flex',
             alignItems: 'center',
-            gap: 12,
+            gap: 10,
             cursor: 'pointer',
             outline: 'none',
+            textShadow: textShadowPrimary,
+            boxShadow: `0 8px 40px rgba(0, 0, 0, 0.25), 0 0 24px ${accent}26, inset 0 1px 0 rgba(255, 255, 255, 0.3)`,
           }}
         >
-          <Icon name="play" size={18} />
+          <Icon name="play" size={16} />
           PLAY
         </button>
 
-        {/* Roster strip — tap to select; + opens panel */}
+        {/* Frosted roster — selected character gets a 2px accent ring */}
         <div
           style={{
             display: 'flex',
             gap: 8,
             padding: '8px 10px',
             borderRadius: 22,
-            background: 'rgba(10, 14, 22, 0.55)',
-            border: '1px solid rgba(255,255,255,0.08)',
-            backdropFilter: 'blur(14px)',
-            WebkitBackdropFilter: 'blur(14px)',
-            boxShadow: '0 8px 24px rgba(0,0,0,0.35)',
+            background: tint,
+            border: '1px solid rgba(255, 255, 255, 0.25)',
+            backdropFilter: 'blur(24px) saturate(140%)',
+            WebkitBackdropFilter: 'blur(24px) saturate(140%)',
+            boxShadow: '0 8px 40px rgba(0, 0, 0, 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.3)',
           }}
         >
           {ALIENS.map((a) => {
@@ -3827,16 +4095,19 @@ function StartMenuOverlay({ fragments, best, ownedAliens, selectedAlien, selecte
                   width: 52,
                   height: 52,
                   borderRadius: 14,
-                  background: sel ? 'rgba(255,255,255,0.16)' : 'rgba(255,255,255,0.04)',
-                  border: `1px solid ${sel ? 'rgba(255,255,255,0.40)' : 'rgba(255,255,255,0.08)'}`,
+                  background: sel ? 'rgba(255, 255, 255, 0.18)' : 'rgba(255, 255, 255, 0.06)',
+                  border: sel
+                    ? `2px solid ${accent}`
+                    : '1px solid rgba(255, 255, 255, 0.18)',
                   padding: 0,
                   cursor: 'pointer',
                   outline: 'none',
-                  opacity: owned ? 1 : 0.6,
+                  opacity: owned ? 1 : 0.65,
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
                   overflow: 'hidden',
+                  boxShadow: sel ? `0 0 16px ${accent}66` : 'none',
                 }}
               >
                 <AlienSilhouette design={a.id} hat={sel ? selectedHat : 'none'} size={48} />
@@ -3856,9 +4127,9 @@ function StartMenuOverlay({ fragments, best, ownedAliens, selectedAlien, selecte
               width: 52,
               height: 52,
               borderRadius: 14,
-              background: 'rgba(255,255,255,0.04)',
-              border: '1px dashed rgba(255,255,255,0.25)',
-              color: 'rgba(255,255,255,0.65)',
+              background: 'rgba(255, 255, 255, 0.06)',
+              border: '1px dashed rgba(255, 255, 255, 0.30)',
+              color: 'rgba(255, 255, 255, 0.75)',
               fontSize: 24,
               fontWeight: 300,
               cursor: 'pointer',
@@ -3866,6 +4137,7 @@ function StartMenuOverlay({ fragments, best, ownedAliens, selectedAlien, selecte
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
+              textShadow: textShadowPrimary,
             }}
           >
             +
@@ -3876,146 +4148,127 @@ function StartMenuOverlay({ fragments, best, ownedAliens, selectedAlien, selecte
   );
 }
 
-function DeathOverlay({ score, planet, onRetry, onShare, onLeaderboard, onMenu }) {
+function DeathOverlay({ planet, onRetry, onShare, onLeaderboard, onMenu }) {
+  const accent = planet?.accent || '#ffffff';
+  const dark = planet ? needsDarkTint(planet) : false;
+  const tint = dark ? FROSTED_TINT_DARK : FROSTED_TINT_LIGHT;
+
+  const circleBtn = {
+    width: 48, height: 48, borderRadius: 24,
+    border: '1px solid rgba(255, 255, 255, 0.25)',
+    background: tint,
+    backdropFilter: 'blur(24px) saturate(140%)',
+    WebkitBackdropFilter: 'blur(24px) saturate(140%)',
+    color: '#ffffff', cursor: 'pointer', outline: 'none',
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+    boxShadow: '0 8px 28px rgba(0, 0, 0, 0.30), inset 0 1px 0 rgba(255, 255, 255, 0.3)',
+  };
+
   return (
     <div
       style={{
         position: 'absolute',
-        bottom: 36,
+        bottom: 'calc(36px + env(safe-area-inset-bottom, 0px))',
         left: 0,
         right: 0,
         display: 'flex',
         flexDirection: 'column',
         alignItems: 'center',
-        gap: 12,
+        gap: 14,
         zIndex: 5,
         animation: 'sd-overlay-in 0.45s ease-out 0.2s both',
+        padding: '0 32px',
       }}
       onTouchStart={stopProp}
       onMouseDown={stopProp}
     >
+      {/* TRY AGAIN — full-width frosted capsule with accent glow */}
       <button
         className="sd-btn"
         onClick={onRetry}
         style={{
+          width: 'min(320px, 100%)',
           padding: '16px 48px',
           borderRadius: 32,
-          border: '1px solid rgba(255,255,255,0.18)',
-          background: 'linear-gradient(180deg, rgba(255,255,255,0.14) 0%, rgba(255,255,255,0.05) 100%)',
-          backdropFilter: 'blur(16px)',
-          WebkitBackdropFilter: 'blur(16px)',
+          border: `1px solid ${accent}66`,
+          background: tint,
+          backdropFilter: 'blur(24px) saturate(140%)',
+          WebkitBackdropFilter: 'blur(24px) saturate(140%)',
           color: '#ffffff',
-          fontSize: 17,
+          fontSize: 18,
           fontWeight: 600,
-          letterSpacing: 1.5,
+          letterSpacing: '0.10em',
           cursor: 'pointer',
           outline: 'none',
-          boxShadow: '0 14px 36px rgba(0,0,0,0.45)',
+          textShadow: textShadowPrimary,
+          boxShadow: `0 8px 40px rgba(0, 0, 0, 0.25), 0 0 24px ${accent}26, inset 0 1px 0 rgba(255, 255, 255, 0.3)`,
         }}
       >
         TRY AGAIN
       </button>
-      <div style={{ display: 'flex', gap: 12 }}>
+      {/* Three icon-only circular frosted buttons */}
+      <div style={{ display: 'flex', gap: 14 }}>
         <button
           className="sd-btn"
           onClick={onMenu}
           aria-label="Back to menu"
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 8,
-            padding: '10px 18px',
-            borderRadius: 22,
-            border: '1px solid rgba(255,255,255,0.12)',
-            background: 'rgba(18, 24, 38, 0.55)',
-            backdropFilter: 'blur(14px)',
-            WebkitBackdropFilter: 'blur(14px)',
-            color: '#ffffff',
-            fontSize: 13,
-            fontWeight: 500,
-            cursor: 'pointer',
-            outline: 'none',
-          }}
+          style={circleBtn}
         >
-          <Icon name="home" size={16} />
-          Menu
+          <Icon name="home" size={20} />
         </button>
         <button
           className="sd-btn"
-          onClick={() => onShare(score, planet)}
+          onClick={onShare}
           aria-label="Share score"
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 8,
-            padding: '10px 18px',
-            borderRadius: 22,
-            border: '1px solid rgba(255,255,255,0.12)',
-            background: 'rgba(18, 24, 38, 0.55)',
-            backdropFilter: 'blur(14px)',
-            WebkitBackdropFilter: 'blur(14px)',
-            color: '#ffffff',
-            fontSize: 13,
-            fontWeight: 500,
-            cursor: 'pointer',
-            outline: 'none',
-          }}
+          style={circleBtn}
         >
-          <Icon name="share" size={16} />
-          Share
+          <Icon name="share" size={20} />
         </button>
         <button
           className="sd-btn"
           onClick={onLeaderboard}
           aria-label="Open leaderboard"
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 8,
-            padding: '10px 18px',
-            borderRadius: 22,
-            border: '1px solid rgba(255,255,255,0.12)',
-            background: 'rgba(18, 24, 38, 0.55)',
-            backdropFilter: 'blur(14px)',
-            WebkitBackdropFilter: 'blur(14px)',
-            color: '#ffffff',
-            fontSize: 13,
-            fontWeight: 500,
-            cursor: 'pointer',
-            outline: 'none',
-          }}
+          style={circleBtn}
         >
-          <Icon name="trophy" size={16} />
-          Ranks
+          <Icon name="trophy" size={20} />
         </button>
       </div>
     </div>
   );
 }
 
-function InitialsModal({ entry, initials, onChange, onSubmit }) {
+function InitialsModal({ entry, initials, onChange, onSubmit, planet }) {
   const handleChange = (idx, ch) => {
     const arr = initials.padEnd(3, 'A').split('');
     const v = (ch || 'A').toUpperCase().replace(/[^A-Z]/g, '');
     arr[idx] = v || 'A';
     onChange(arr.join('').slice(0, 3));
   };
+  const accent = planet?.accent || '#ffffff';
   return (
     <div style={overlayBackdropStyle} onTouchStart={stopProp} onMouseDown={stopProp}>
       <div
         style={{
-          ...cardStyle,
+          ...frostedCardStyle(planet),
           width: 'min(360px, calc(100% - 48px))',
           padding: '28px 24px',
           textAlign: 'center',
           animation: 'sd-panel-in 0.22s ease-out',
         }}
       >
-        <div style={{ fontSize: 12, letterSpacing: 1.6, opacity: 0.65, fontWeight: 500 }}>
-          NEW HIGH SCORE
+        <div style={labelStyle}>NEW HIGH SCORE</div>
+        <div style={{
+          fontSize: 48, fontWeight: 200, margin: '8px 0 4px',
+          color: '#ffffff', textShadow: `0 0 16px ${accent}`,
+        }}>
+          {entry.score}
         </div>
-        <div style={{ fontSize: 48, fontWeight: 300, margin: '8px 0 4px' }}>{entry.score}</div>
-        <div style={{ fontSize: 13, opacity: 0.65, marginBottom: 22 }}>Reached {entry.planet}</div>
+        <div style={{
+          fontSize: 13, color: accent, marginBottom: 22,
+          fontWeight: 600, textShadow: textShadowSubtle,
+        }}>
+          Reached {entry.planet}
+        </div>
         <div style={{ display: 'flex', justifyContent: 'center', gap: 10, marginBottom: 22 }}>
           {[0, 1, 2].map((i) => (
             <input
@@ -4030,12 +4283,13 @@ function InitialsModal({ entry, initials, onChange, onSubmit }) {
                 fontSize: 32,
                 fontWeight: 600,
                 textAlign: 'center',
-                background: 'rgba(255,255,255,0.06)',
-                border: '1px solid rgba(255,255,255,0.18)',
+                background: 'rgba(255, 255, 255, 0.10)',
+                border: '1px solid rgba(255, 255, 255, 0.30)',
                 borderRadius: 14,
                 color: '#ffffff',
                 outline: 'none',
                 fontFamily: 'inherit',
+                textShadow: textShadowPrimary,
               }}
             />
           ))}
@@ -4047,14 +4301,18 @@ function InitialsModal({ entry, initials, onChange, onSubmit }) {
             width: '100%',
             padding: '14px 0',
             borderRadius: 22,
-            border: '1px solid rgba(255,255,255,0.18)',
-            background: 'linear-gradient(180deg, rgba(255,255,255,0.16), rgba(255,255,255,0.05))',
+            border: `1px solid ${accent}66`,
+            background: 'rgba(255, 255, 255, 0.18)',
+            backdropFilter: 'blur(12px)',
+            WebkitBackdropFilter: 'blur(12px)',
             color: '#ffffff',
             fontSize: 15,
             fontWeight: 600,
-            letterSpacing: 1.2,
+            letterSpacing: '0.10em',
             cursor: 'pointer',
             outline: 'none',
+            textShadow: textShadowPrimary,
+            boxShadow: `0 0 24px ${accent}26`,
           }}
         >
           SAVE
@@ -4067,15 +4325,20 @@ function InitialsModal({ entry, initials, onChange, onSubmit }) {
 function PanelHeader({ title, onClose }) {
   return (
     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18 }}>
-      <div style={{ fontSize: 18, fontWeight: 600, letterSpacing: 0.5 }}>{title}</div>
+      <div style={{
+        fontSize: 18, fontWeight: 600, letterSpacing: 0.5,
+        color: '#ffffff', textShadow: textShadowPrimary,
+      }}>
+        {title}
+      </div>
       <button
         className="sd-btn"
         onClick={onClose}
         aria-label="Close"
         style={{
           width: 36, height: 36, borderRadius: 18,
-          border: '1px solid rgba(255,255,255,0.14)',
-          background: 'rgba(255,255,255,0.06)',
+          border: '1px solid rgba(255, 255, 255, 0.30)',
+          background: 'rgba(255, 255, 255, 0.10)',
           color: '#ffffff', cursor: 'pointer', outline: 'none',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
         }}
@@ -4270,13 +4533,18 @@ function AlienSilhouette({ design, hat, size = 64 }) {
   );
 }
 
-function AliensPanel({ fragments, ownedAliens, ownedHats, selectedAlien, selectedHat, onSelectAlien, onSelectHat, onUnlockAlien, onUnlockHat, onClose }) {
+function AliensPanel({ fragments, ownedAliens, ownedHats, selectedAlien, selectedHat, planet, onSelectAlien, onSelectHat, onUnlockAlien, onUnlockHat, onClose }) {
+  const accent = planet?.accent || '#ffffff';
+  // Pad the hat grid with 3 "Coming soon" placeholder slots so the Crown row
+  // doesn't sit alone at the bottom (currently 5 hats → 1 orphan on the
+  // wrapped second row). Styled like the Settings "Coming soon" cue.
+  const PLACEHOLDER_HATS = 3;
   return (
     <div style={overlayBackdropStyle} onTouchStart={stopProp} onMouseDown={stopProp} onClick={onClose}>
       <div
         onClick={stopProp}
         style={{
-          ...cardStyle,
+          ...frostedCardStyle(planet),
           width: 'min(440px, calc(100% - 32px))',
           maxHeight: 'calc(100% - 64px)',
           padding: '20px 22px',
@@ -4286,14 +4554,20 @@ function AliensPanel({ fragments, ownedAliens, ownedHats, selectedAlien, selecte
         }}
       >
         <PanelHeader title="Aliens" onClose={onClose} />
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, opacity: 0.7, marginBottom: 14 }}>
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 6,
+          fontSize: 12, marginBottom: 14,
+          color: 'rgba(255, 255, 255, 0.75)', textShadow: textShadowSubtle,
+        }}>
           <Icon name="star" size={14} color="#f5d878" />
           <span>{fragments.toLocaleString()} fragments</span>
         </div>
-        <div style={{ overflowY: 'auto', flex: 1, paddingRight: 4 }}>
+        {/* 24px top padding on the scrollable area to prevent the first row
+            from being visually clipped by the panel header's edge. */}
+        <div style={{ overflowY: 'auto', flex: 1, paddingRight: 4, paddingTop: 24 }}>
           {/* Aliens */}
-          <div style={{ fontSize: 11, opacity: 0.55, letterSpacing: 1.4, marginBottom: 10 }}>CHARACTER</div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 22 }}>
+          <div style={{ ...labelStyle, marginBottom: 10 }}>CHARACTER</div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 8 }}>
             {ALIENS.map((a) => {
               const owned = ownedAliens.includes(a.id);
               const sel = a.id === selectedAlien;
@@ -4305,11 +4579,8 @@ function AliensPanel({ fragments, ownedAliens, ownedHats, selectedAlien, selecte
                   onClick={() => owned ? onSelectAlien(a.id) : (canAfford ? onUnlockAlien(a.id) : null)}
                   disabled={!owned && !canAfford}
                   style={{
-                    background: sel ? 'rgba(255,255,255,0.10)' : 'rgba(255,255,255,0.04)',
-                    border: `1px solid ${sel ? 'rgba(255,255,255,0.35)' : 'rgba(255,255,255,0.10)'}`,
-                    borderRadius: 18,
+                    ...frostedSubCardStyle(planet, sel, accent),
                     padding: '14px 12px',
-                    color: '#ffffff',
                     cursor: (owned || canAfford) ? 'pointer' : 'not-allowed',
                     outline: 'none',
                     textAlign: 'left',
@@ -4320,23 +4591,39 @@ function AliensPanel({ fragments, ownedAliens, ownedHats, selectedAlien, selecte
                     <AlienSilhouette design={a.id} hat={sel ? selectedHat : 'none'} size={88} />
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                    <div style={{ fontSize: 14, fontWeight: 600 }}>{a.name}</div>
+                    <div style={{
+                      fontSize: 14, fontWeight: 600, color: '#ffffff',
+                      textShadow: textShadowPrimary,
+                    }}>{a.name}</div>
                     {owned
                       ? (sel
-                        ? <span style={{ color: '#a8e8c8' }}><Icon name="check" size={16} color="#a8e8c8" /></span>
-                        : <span style={{ fontSize: 11, opacity: 0.55 }}>Owned</span>)
-                      : <span style={{ fontSize: 12, fontWeight: 500, display: 'flex', alignItems: 'center', gap: 4, opacity: canAfford ? 1 : 0.6 }}>
+                        ? <span style={{ color: accent, textShadow: `0 0 8px ${accent}` }}><Icon name="check" size={16} color={accent} /></span>
+                        : <span style={{ fontSize: 11, color: 'rgba(255, 255, 255, 0.60)' }}>Owned</span>)
+                      : <span style={{
+                          fontSize: 12, fontWeight: 600, display: 'flex',
+                          alignItems: 'center', gap: 4,
+                          color: '#ffffff', textShadow: textShadowSubtle,
+                          opacity: canAfford ? 1 : 0.65,
+                        }}>
                           <Icon name="star" size={12} color="#f5d878" />
                           {a.cost}
                         </span>}
                   </div>
-                  <div style={{ fontSize: 11, opacity: 0.55, marginTop: 4 }}>{a.blurb}</div>
+                  <div style={{
+                    fontSize: 11, marginTop: 4,
+                    color: 'rgba(255, 255, 255, 0.60)',
+                  }}>{a.blurb}</div>
                 </button>
               );
             })}
           </div>
-          {/* Hats */}
-          <div style={{ fontSize: 11, opacity: 0.55, letterSpacing: 1.4, marginBottom: 10 }}>HAT</div>
+
+          {/* Hats — divider line + 32px top margin separate the section visually */}
+          <div style={{
+            height: 1, background: 'rgba(255, 255, 255, 0.18)',
+            margin: '32px 0 16px',
+          }} />
+          <div style={{ ...labelStyle, marginBottom: 10 }}>HAT</div>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginBottom: 8 }}>
             {HATS.map((h) => {
               const owned = ownedHats.includes(h.id);
@@ -4349,22 +4636,26 @@ function AliensPanel({ fragments, ownedAliens, ownedHats, selectedAlien, selecte
                   onClick={() => owned ? onSelectHat(h.id) : (canAfford ? onUnlockHat(h.id) : null)}
                   disabled={!owned && !canAfford}
                   style={{
+                    ...frostedSubCardStyle(planet, sel, accent),
                     width: 72,
-                    background: sel ? 'rgba(255,255,255,0.10)' : 'rgba(255,255,255,0.04)',
-                    border: `1px solid ${sel ? 'rgba(255,255,255,0.35)' : 'rgba(255,255,255,0.10)'}`,
                     borderRadius: 14,
                     padding: '8px 6px',
                     cursor: (owned || canAfford) ? 'pointer' : 'not-allowed',
                     outline: 'none',
-                    color: '#ffffff',
                     opacity: (!owned && !canAfford) ? 0.5 : 1,
                   }}
                 >
                   <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 4 }}>
                     <AlienSilhouette design={selectedAlien} hat={h.id} size={56} />
                   </div>
-                  <div style={{ fontSize: 10, fontWeight: 500, textAlign: 'center' }}>{h.name}</div>
-                  <div style={{ fontSize: 9, opacity: 0.6, textAlign: 'center', marginTop: 2 }}>
+                  <div style={{
+                    fontSize: 10, fontWeight: 600, textAlign: 'center',
+                    color: '#ffffff', textShadow: textShadowSubtle,
+                  }}>{h.name}</div>
+                  <div style={{
+                    fontSize: 9, textAlign: 'center', marginTop: 2,
+                    color: sel && owned ? accent : 'rgba(255, 255, 255, 0.60)',
+                  }}>
                     {owned
                       ? (sel ? '✓ selected' : 'owned')
                       : `★ ${h.cost}`}
@@ -4372,6 +4663,35 @@ function AliensPanel({ fragments, ownedAliens, ownedHats, selectedAlien, selecte
                 </button>
               );
             })}
+            {/* Placeholder "Coming soon" slots pad the Crown row */}
+            {Array.from({ length: PLACEHOLDER_HATS }).map((_, i) => (
+              <div
+                key={`placeholder-${i}`}
+                style={{
+                  ...frostedSubCardStyle(planet, false, accent),
+                  width: 72,
+                  height: 92,
+                  borderRadius: 14,
+                  padding: '8px 6px',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  border: '1px dashed rgba(255, 255, 255, 0.20)',
+                  background: 'rgba(255, 255, 255, 0.04)',
+                  opacity: 0.7,
+                }}
+              >
+                <div style={{
+                  fontSize: 18, color: 'rgba(255, 255, 255, 0.40)', marginBottom: 4,
+                }}>+</div>
+                <div style={{
+                  fontSize: 9, fontWeight: 600, textAlign: 'center',
+                  color: 'rgba(255, 255, 255, 0.55)',
+                  letterSpacing: '0.04em',
+                }}>Coming soon</div>
+              </div>
+            ))}
           </div>
         </div>
       </div>
@@ -4379,13 +4699,16 @@ function AliensPanel({ fragments, ownedAliens, ownedHats, selectedAlien, selecte
   );
 }
 
-function LeaderboardPanel({ entries, highlightId, onShare, onClose }) {
+function LeaderboardPanel({ entries, highlightId, planet, onShare, onClose }) {
+  const accent = planet?.accent || '#ffffff';
+  // Planet accent at ~12% opacity (1E hex ≈ 30/255 = 12%) for the player row.
+  const playerRowBg = `${accent}1F`;
   return (
     <div style={overlayBackdropStyle} onTouchStart={stopProp} onMouseDown={stopProp} onClick={onClose}>
       <div
         onClick={stopProp}
         style={{
-          ...cardStyle,
+          ...frostedCardStyle(planet),
           width: 'min(420px, calc(100% - 32px))',
           maxHeight: 'calc(100% - 64px)',
           padding: '20px 22px',
@@ -4396,50 +4719,73 @@ function LeaderboardPanel({ entries, highlightId, onShare, onClose }) {
       >
         <PanelHeader title="Leaderboard" onClose={onClose} />
         {entries.length === 0 ? (
-          <div style={{ fontSize: 13, opacity: 0.65, padding: '40px 0', textAlign: 'center' }}>
+          <div style={{
+            fontSize: 13, padding: '40px 0', textAlign: 'center',
+            color: 'rgba(255, 255, 255, 0.75)', textShadow: textShadowSubtle,
+            fontStyle: 'italic',
+          }}>
             No runs yet — fly far to claim the top spot.
           </div>
         ) : (
           <div style={{ overflowY: 'auto', flex: 1 }}>
-            {entries.map((e, i) => (
-              <div
-                key={e.id}
-                style={{
-                  display: 'grid',
-                  gridTemplateColumns: '32px 64px 1fr auto',
-                  alignItems: 'center',
-                  gap: 12,
-                  padding: '10px 8px',
-                  borderBottom: '1px solid rgba(255,255,255,0.06)',
-                  fontSize: 13,
-                  background: e.id === highlightId ? 'rgba(168, 232, 200, 0.10)' : 'transparent',
-                  borderRadius: e.id === highlightId ? 10 : 0,
-                }}
-              >
-                <div style={{ opacity: 0.5, fontWeight: 500 }}>{i + 1}</div>
-                <div style={{ fontWeight: 600, fontSize: 15, letterSpacing: 1.2 }}>{e.initials}</div>
-                <div style={{ display: 'flex', flexDirection: 'column' }}>
-                  <div style={{ fontSize: 11, opacity: 0.55 }}>{e.planet} · {e.date}</div>
+            {entries.map((e, i) => {
+              const isPlayer = e.id === highlightId;
+              return (
+                <div
+                  key={e.id}
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: '32px 64px 1fr auto',
+                    alignItems: 'center',
+                    gap: 12,
+                    padding: '10px 12px',
+                    borderBottom: '1px solid rgba(255, 255, 255, 0.10)',
+                    fontSize: 13,
+                    background: isPlayer ? playerRowBg : 'transparent',
+                    borderRadius: isPlayer ? 12 : 0,
+                    border: isPlayer ? `1px solid ${accent}40` : '1px solid transparent',
+                    borderBottomColor: isPlayer ? `${accent}40` : 'rgba(255, 255, 255, 0.10)',
+                    boxShadow: isPlayer ? `0 0 16px ${accent}22` : 'none',
+                  }}
+                >
+                  <div style={{
+                    color: 'rgba(255, 255, 255, 0.60)', fontWeight: 600,
+                    textShadow: textShadowSubtle,
+                  }}>{i + 1}</div>
+                  <div style={{
+                    fontWeight: 600, fontSize: 15, letterSpacing: '0.08em',
+                    color: '#ffffff', textShadow: textShadowPrimary,
+                  }}>{e.initials}</div>
+                  <div style={{ display: 'flex', flexDirection: 'column' }}>
+                    <div style={{
+                      fontSize: 11,
+                      color: 'rgba(255, 255, 255, 0.60)',
+                    }}>{e.planet} · {e.date}</div>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <div style={{
+                      fontWeight: 600, fontSize: 16,
+                      color: '#ffffff',
+                      textShadow: isPlayer ? `0 0 12px ${accent}` : textShadowPrimary,
+                    }}>{e.score}</div>
+                    <button
+                      className="sd-btn"
+                      onClick={() => onShare(e.score, e.planet)}
+                      aria-label="Share entry"
+                      style={{
+                        width: 28, height: 28, borderRadius: 14,
+                        border: '1px solid rgba(255, 255, 255, 0.25)',
+                        background: 'rgba(255, 255, 255, 0.10)',
+                        color: '#ffffff', cursor: 'pointer', outline: 'none',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      }}
+                    >
+                      <Icon name="share" size={13} />
+                    </button>
+                  </div>
                 </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <div style={{ fontWeight: 600, fontSize: 16 }}>{e.score}</div>
-                  <button
-                    className="sd-btn"
-                    onClick={() => onShare(e.score, e.planet)}
-                    aria-label="Share entry"
-                    style={{
-                      width: 28, height: 28, borderRadius: 14,
-                      border: '1px solid rgba(255,255,255,0.10)',
-                      background: 'rgba(255,255,255,0.05)',
-                      color: '#ffffff', cursor: 'pointer', outline: 'none',
-                      display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    }}
-                  >
-                    <Icon name="share" size={13} />
-                  </button>
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>
@@ -4447,7 +4793,7 @@ function LeaderboardPanel({ entries, highlightId, onShare, onClose }) {
   );
 }
 
-function ToggleRow({ label, value, onChange, sub }) {
+function ToggleRow({ label, value, onChange, sub, accent }) {
   return (
     <button
       className="sd-btn"
@@ -4455,21 +4801,28 @@ function ToggleRow({ label, value, onChange, sub }) {
       style={{
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
         width: '100%', padding: '14px 16px', borderRadius: 16,
-        background: 'rgba(255,255,255,0.04)',
-        border: '1px solid rgba(255,255,255,0.08)',
+        background: 'rgba(255, 255, 255, 0.08)',
+        border: '1px solid rgba(255, 255, 255, 0.18)',
         color: '#ffffff', cursor: 'pointer', outline: 'none',
         marginBottom: 8, fontFamily: 'inherit',
       }}
     >
       <div style={{ textAlign: 'left' }}>
-        <div style={{ fontSize: 14, fontWeight: 500 }}>{label}</div>
-        {sub && <div style={{ fontSize: 11, opacity: 0.55, marginTop: 2 }}>{sub}</div>}
+        <div style={{
+          fontSize: 14, fontWeight: 600, color: '#ffffff',
+          textShadow: textShadowPrimary,
+        }}>{label}</div>
+        {sub && <div style={{
+          fontSize: 11, marginTop: 2,
+          color: 'rgba(255, 255, 255, 0.60)',
+        }}>{sub}</div>}
       </div>
       <div
         style={{
           width: 44, height: 26, borderRadius: 13,
-          background: value ? 'rgba(168, 232, 200, 0.65)' : 'rgba(255,255,255,0.10)',
+          background: value ? `${accent || '#a8e8c8'}A6` : 'rgba(255, 255, 255, 0.15)',
           position: 'relative', transition: 'background 0.18s ease',
+          boxShadow: value ? `0 0 12px ${accent || '#a8e8c8'}66` : 'none',
         }}
       >
         <div style={{
@@ -4483,13 +4836,14 @@ function ToggleRow({ label, value, onChange, sub }) {
   );
 }
 
-function SettingsPanel({ muted, vibration, colorBlind, onMutedChange, onVibrationChange, onColorBlindChange, onClose }) {
+function SettingsPanel({ muted, vibration, colorBlind, planet, onMutedChange, onVibrationChange, onColorBlindChange, onClose }) {
+  const accent = planet?.accent || '#a8e8c8';
   return (
     <div style={overlayBackdropStyle} onTouchStart={stopProp} onMouseDown={stopProp} onClick={onClose}>
       <div
         onClick={stopProp}
         style={{
-          ...cardStyle,
+          ...frostedCardStyle(planet),
           width: 'min(360px, calc(100% - 32px))',
           padding: '20px 22px',
           animation: 'sd-panel-in 0.22s ease-out',
@@ -4500,21 +4854,27 @@ function SettingsPanel({ muted, vibration, colorBlind, onMutedChange, onVibratio
           label="Sound"
           sub="Music and effects"
           value={!muted}
+          accent={accent}
           onChange={(v) => onMutedChange(!v)}
         />
         <ToggleRow
           label="Vibration"
           sub="Haptic feedback on death (mobile)"
           value={vibration}
+          accent={accent}
           onChange={onVibrationChange}
         />
         <ToggleRow
           label="Color blind mode"
           sub="Coming soon"
           value={colorBlind}
+          accent={accent}
           onChange={onColorBlindChange}
         />
-        <div style={{ fontSize: 11, opacity: 0.45, textAlign: 'center', marginTop: 14 }}>
+        <div style={{
+          fontSize: 11, textAlign: 'center', marginTop: 14,
+          color: 'rgba(255, 255, 255, 0.45)',
+        }}>
           Stellar Drift · v0.3
         </div>
       </div>
