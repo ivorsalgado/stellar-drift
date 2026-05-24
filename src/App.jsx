@@ -278,6 +278,12 @@ export default function StellarDrift() {
   const canvasRef = useRef(null);
   const containerRef = useRef(null);
   const offscreenRef = useRef(null);
+  // Per-card cache for frosted-glass HUD/menu cards. Each entry holds a
+  // pre-rendered card (shadow + blurred scene + tint + border + highlight)
+  // and a frame stamp. Refreshing every N frames instead of every frame
+  // turns three full ctx.filter blur passes per frame into ~one every four —
+  // big win on mobile where Canvas2D blur isn't reliably GPU-accelerated.
+  const cardCacheRef = useRef(null);
   const audioRef = useRef(null);
   const gsRef = useRef(null);
   const rafRef = useRef(null);
@@ -2341,72 +2347,142 @@ export default function StellarDrift() {
   }, []);
 
   // ─────────────────────────────────────────────────────────────
-  // FROSTED GLASS CARD — simulates backdrop-blur on canvas by re-sampling
-  // a region of the already-rendered offscreen scene through ctx.filter
-  // blur, then overlaying a warm whitish tint. Source coords need ×dpr
-  // because `off` is intrinsically dpr-scaled while we draw in CSS px.
+  // FROSTED GLASS CARD — simulates backdrop-blur on canvas. The expensive
+  // step is sampling the offscreen scene through ctx.filter blur(20px);
+  // on mobile Canvas2D this is not reliably GPU-accelerated and running
+  // it 3× per frame (score / level / speed pills) was tanking framerate.
+  //
+  // Strategy: pre-render the entire card (shadow + blurred scene + tint +
+  // border + highlight) into a per-card offscreen canvas keyed by `opts.id`,
+  // and refresh it every FROSTED_REFRESH_EVERY frames. Each game-loop frame
+  // we just blit the cached card — one cheap drawImage instead of a blur.
+  // The cached blur lags the scene by up to N-1 frames, which is invisible
+  // at this blur radius. Source coords use ×dpr because `off` is
+  // intrinsically dpr-scaled while we draw in CSS px.
   // ─────────────────────────────────────────────────────────────
   const drawFrostedCard = useCallback((ctx, off, gs, x, y, w, h, opts = {}) => {
-    const { radius = 22, planet } = opts;
+    const { id, radius = 22, planet, refreshEvery = 4 } = opts;
     const useDarkTint = opts.useDarkTint != null
       ? opts.useDarkTint
       : (planet ? needsDarkTint(planet) : false);
     const s = gs.scale;
     const r = radius * s;
+    const dpr = off && off.width > 0 ? off.width / gs.w : 1;
 
-    // 1. Drop shadow below the card (drawn first so it sits underneath).
-    ctx.save();
-    ctx.shadowColor = 'rgba(0, 0, 0, 0.25)';
-    ctx.shadowBlur = 20 * s;
-    ctx.shadowOffsetY = 8 * s;
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.45)';
-    roundRect(ctx, x, y, w, h, r);
-    ctx.fill();
-    ctx.restore();
+    // Cache pad: shadowBlur=20*s extends outside the rounded rect, so the
+    // cache canvas needs slack around the card to hold the shadow.
+    const padCss = Math.ceil(28 * s);
+    const cardW = w + padCss * 2;
+    const cardH = h + padCss * 2;
 
-    // 2. Blurred scene snapshot inside the card region (clip to rounded rect).
-    ctx.save();
-    roundRect(ctx, x, y, w, h, r);
-    ctx.clip();
-    if (off && off.width > 0) {
-      try {
-        const dpr = off.width / gs.w;
-        const pad = 24 * s;
-        const sx = Math.max(0, x - pad);
-        const sy = Math.max(0, y - pad);
-        const sw = Math.min(gs.w - sx, w + pad * 2);
-        const sh = Math.min(gs.h - sy, h + pad * 2);
-        ctx.filter = `blur(${20 * s}px)`;
-        ctx.drawImage(off, sx * dpr, sy * dpr, sw * dpr, sh * dpr, sx, sy, sw, sh);
-        ctx.filter = 'none';
-      } catch {
-        ctx.filter = 'none';
+    if (!cardCacheRef.current) cardCacheRef.current = new Map();
+    const cache = cardCacheRef.current;
+    let entry = id ? cache.get(id) : null;
+    const wantW = Math.max(1, Math.ceil(cardW * dpr));
+    const wantH = Math.max(1, Math.ceil(cardH * dpr));
+    const sizeChanged = !entry || entry.canvas.width !== wantW || entry.canvas.height !== wantH;
+    if (id && sizeChanged) {
+      if (!entry) {
+        entry = { canvas: document.createElement('canvas'), lastFrame: -Infinity };
+        cache.set(id, entry);
       }
+      entry.canvas.width = wantW;
+      entry.canvas.height = wantH;
+      entry.lastFrame = -Infinity;
     }
-    // 3. Warm tint overlay (dark variant for light-background planets like Sun).
-    ctx.fillStyle = useDarkTint ? FROSTED_TINT_DARK : FROSTED_TINT_LIGHT;
-    ctx.fillRect(x, y, w, h);
-    ctx.restore();
 
-    // 4. Border (1px white at 25%).
-    ctx.save();
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.25)';
-    ctx.lineWidth = 1;
-    roundRect(ctx, x, y, w, h, r);
-    ctx.stroke();
-    ctx.restore();
+    const cacheable = id && off && off.width > 0;
+    const needsRender = !cacheable
+      || sizeChanged
+      || (gs.time - entry.lastFrame) >= refreshEvery;
 
-    // 5. Inner top-edge highlight (subtle glass refraction).
-    ctx.save();
-    roundRect(ctx, x, y, w, h, r);
-    ctx.clip();
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.30)';
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.moveTo(x + r * 0.55, y + 0.5);
-    ctx.lineTo(x + w - r * 0.55, y + 0.5);
-    ctx.stroke();
-    ctx.restore();
+    // Target context to render into: either the per-card cache (preferred)
+    // or the main ctx directly (fallback for the first frame before `off`
+    // has any pixels). When rendering into the cache, all card-local draws
+    // use (0,0)-based coords and we translate by padCss so the shadow has
+    // room; the blit at the end places the result at (x - padCss, y - padCss).
+    const intoCache = cacheable && needsRender;
+    const drawDirect = !cacheable;
+
+    if (intoCache) {
+      entry.lastFrame = gs.time;
+      const cctx = entry.canvas.getContext('2d');
+      cctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      cctx.clearRect(0, 0, cardW, cardH);
+      cctx.translate(padCss, padCss);
+      paintCard(cctx, 0, 0);
+      cctx.setTransform(dpr, 0, 0, dpr, 0, 0); // reset translate for next refresh
+    } else if (drawDirect) {
+      paintCard(ctx, x, y);
+    }
+
+    if (cacheable && entry) {
+      ctx.drawImage(
+        entry.canvas,
+        0, 0, entry.canvas.width, entry.canvas.height,
+        x - padCss, y - padCss, cardW, cardH,
+      );
+    }
+
+    function paintCard(target, ox, oy) {
+      // 1. Drop shadow below the card (drawn first so it sits underneath).
+      target.save();
+      target.shadowColor = 'rgba(0, 0, 0, 0.25)';
+      target.shadowBlur = 20 * s;
+      target.shadowOffsetY = 8 * s;
+      target.fillStyle = 'rgba(0, 0, 0, 0.45)';
+      roundRect(target, ox, oy, w, h, r);
+      target.fill();
+      target.restore();
+
+      // 2. Blurred scene snapshot inside the card region (clip to rounded rect).
+      target.save();
+      roundRect(target, ox, oy, w, h, r);
+      target.clip();
+      if (off && off.width > 0) {
+        try {
+          const pad = 24 * s;
+          const sx = Math.max(0, x - pad);
+          const sy = Math.max(0, y - pad);
+          const sw = Math.min(gs.w - sx, w + pad * 2);
+          const sh = Math.min(gs.h - sy, h + pad * 2);
+          // When painting into the cache, the card's (ox, oy) is (0, 0) and
+          // we want global (x, y) to land at local (0, 0); when painting
+          // direct, (ox, oy) === (x, y) and the offset is zero.
+          const dx = sx - x + ox;
+          const dy = sy - y + oy;
+          target.filter = `blur(${20 * s}px)`;
+          target.drawImage(off, sx * dpr, sy * dpr, sw * dpr, sh * dpr, dx, dy, sw, sh);
+          target.filter = 'none';
+        } catch {
+          target.filter = 'none';
+        }
+      }
+      // 3. Warm tint overlay (dark variant for light-background planets like Sun).
+      target.fillStyle = useDarkTint ? FROSTED_TINT_DARK : FROSTED_TINT_LIGHT;
+      target.fillRect(ox, oy, w, h);
+      target.restore();
+
+      // 4. Border (1px white at 25%).
+      target.save();
+      target.strokeStyle = 'rgba(255, 255, 255, 0.25)';
+      target.lineWidth = 1;
+      roundRect(target, ox, oy, w, h, r);
+      target.stroke();
+      target.restore();
+
+      // 5. Inner top-edge highlight (subtle glass refraction).
+      target.save();
+      roundRect(target, ox, oy, w, h, r);
+      target.clip();
+      target.strokeStyle = 'rgba(255, 255, 255, 0.30)';
+      target.lineWidth = 1;
+      target.beginPath();
+      target.moveTo(ox + r * 0.55, oy + 0.5);
+      target.lineTo(ox + w - r * 0.55, oy + 0.5);
+      target.stroke();
+      target.restore();
+    }
   }, []);
 
   const drawHUD = useCallback((ctx, gs, planet, speedMul, off) => {
@@ -2420,7 +2496,7 @@ export default function StellarDrift() {
     const sw = Math.max(110 * s, ctx.measureText(scoreText).width + 50 * s);
     const sx = (w - sw) / 2, sy = 14 * s;
     const sh = 56 * s;
-    drawFrostedCard(ctx, off, gs, sx, sy, sw, sh, { radius: 22, planet });
+    drawFrostedCard(ctx, off, gs, sx, sy, sw, sh, { id: 'hud-score', radius: 22, planet });
     // Score number — pure white with accent glow
     ctx.fillStyle = '#ffffff';
     ctx.textAlign = 'center';
@@ -2479,7 +2555,7 @@ export default function StellarDrift() {
     ctx.font = `600 ${12 * s}px -apple-system, BlinkMacSystemFont, "Helvetica Neue", Helvetica, Arial, sans-serif`;
     const lw = Math.max(120 * s, ctx.measureText(levelLabel).width + 50 * s);
     const lx = 12 * s, ly = 14 * s, lh = 38 * s;
-    drawFrostedCard(ctx, off, gs, lx, ly, lw, lh, { radius: 18, planet });
+    drawFrostedCard(ctx, off, gs, lx, ly, lw, lh, { id: 'hud-level', radius: 18, planet });
     // Progress arc (planet accent)
     const ax = lx + 18 * s, ay = ly + lh / 2, ar = 11 * s;
     ctx.strokeStyle = 'rgba(255, 255, 255, 0.25)';
@@ -2513,7 +2589,7 @@ export default function StellarDrift() {
     ctx.font = `600 ${13 * s}px -apple-system, BlinkMacSystemFont, "Helvetica Neue", Helvetica, Arial, sans-serif`;
     const tw = Math.max(60 * s, ctx.measureText(spdText).width + 26 * s);
     const tx = w - tw - 12 * s, ty = 14 * s, th = 38 * s;
-    drawFrostedCard(ctx, off, gs, tx, ty, tw, th, { radius: 18, planet });
+    drawFrostedCard(ctx, off, gs, tx, ty, tw, th, { id: 'hud-speed', radius: 18, planet });
     ctx.fillStyle = '#ffffff';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
@@ -2541,7 +2617,7 @@ export default function StellarDrift() {
     const cx = (w - cw) / 2, cy = 90 * s;
 
     // Frosted glass card
-    drawFrostedCard(ctx, off, gs, cx, cy, cw, ch, { radius: 22, planet });
+    drawFrostedCard(ctx, off, gs, cx, cy, cw, ch, { id: 'transition', radius: 22, planet });
 
     // 2px accent border on top
     ctx.strokeStyle = `${planet.accent}99`;
@@ -2685,7 +2761,7 @@ export default function StellarDrift() {
     const cy = (h - ch) / 2 - 40 * s;
 
     // Frosted glass card
-    drawFrostedCard(ctx, off, gs, cx, cy, cw, ch, { radius: 22, planet });
+    drawFrostedCard(ctx, off, gs, cx, cy, cw, ch, { id: 'death', radius: 22, planet });
 
     // 1.5px accent border on top
     ctx.strokeStyle = `${planet.accent}80`;
