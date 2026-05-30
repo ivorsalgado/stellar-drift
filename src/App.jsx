@@ -120,8 +120,10 @@ const FROSTED_TINT_DARK = 'rgba(40, 25, 15, 0.35)';
 // region of it. The downsample + bilinear upscale do most of the blurring
 // for free, so the explicit blur radius can stay tiny — way cheaper than
 // running ctx.filter blur(20px) at full resolution per card per frame.
-const FROSTED_SCENE_DOWNSCALE = 4;
-const FROSTED_SCENE_BLUR_PX = 5;
+// Downscale factor for the shared frosted-glass / bloom scene copy. A heavier
+// downscale (then bilinear upscale) provides the blur for free — no per-frame
+// ctx.filter blur() needed, which is the iOS-Safari stall we're avoiding.
+const FROSTED_SCENE_DOWNSCALE = 8;
 
 // Append ?fps to the URL to show a tiny on-canvas perf meter (fps, worst frame
 // interval, JS draw time). Off for normal users — read once at module load.
@@ -3346,17 +3348,19 @@ export default function StellarDrift() {
 
       offCtx.restore();
 
-      // Refresh the shared downsampled-blur of the scene used by all
-      // frosted-glass cards this frame. One small blur per frame instead
-      // of three large ones per card.
+      // Refresh the shared downsampled scene used by all frosted-glass cards
+      // (and the bloom) this frame. The aggressive downscale + bilinear upscale
+      // IS the blur — so we deliberately avoid ctx.filter = blur(), which on
+      // iOS Safari causes a fixed-cost pipeline stall every frame (intermittent
+      // dropped frames even when JS draw time is ~0.6ms). Pure drawImage scaling
+      // is GPU-cheap and stall-free.
       const bs = blurredSceneRef.current;
       if (bs && bs.width > 0) {
         const bsCtx = bs.getContext('2d');
         bsCtx.setTransform(1, 0, 0, 1, 0, 0);
         bsCtx.clearRect(0, 0, bs.width, bs.height);
-        bsCtx.filter = `blur(${FROSTED_SCENE_BLUR_PX}px)`;
+        bsCtx.imageSmoothingEnabled = true;
         bsCtx.drawImage(off, 0, 0, bs.width, bs.height);
-        bsCtx.filter = 'none';
       }
 
       // ── COMPOSITE TO MAIN CANVAS WITH BLOOM ──
