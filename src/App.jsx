@@ -2519,7 +2519,9 @@ export default function StellarDrift() {
     ctx.fillText(`BEST ${best}`, w / 2, sy + sh + 6 * s);
     ctx.restore();
 
-    // Score flash (accent ring around the pill)
+    // Score flash (accent ring around the pill). Decay is handled in the
+    // fixed-timestep update loop, so the flash lasts the same wall-clock
+    // duration regardless of RAF rate.
     if (gs.scoreFlash > 0) {
       ctx.save();
       ctx.globalAlpha = gs.scoreFlash / 10;
@@ -2528,7 +2530,6 @@ export default function StellarDrift() {
       roundRect(ctx, sx - 2 * s, sy - 2 * s, sw + 4 * s, sh + 4 * s, 24 * s);
       ctx.stroke();
       ctx.restore();
-      gs.scoreFlash--;
     }
 
     // Combo bar (moved down to clear the BEST label)
@@ -2977,7 +2978,7 @@ export default function StellarDrift() {
   // ─────────────────────────────────────────────────────────────
   // GAME LOOP
   // ─────────────────────────────────────────────────────────────
-  const step = useCallback(() => {
+  const step = useCallback((now) => {
     const canvas = canvasRef.current;
     const off = offscreenRef.current;
     const gs = gsRef.current;
@@ -2987,9 +2988,6 @@ export default function StellarDrift() {
     }
 
     try {
-      const ctx = canvas.getContext('2d');
-      const w = gs.w, h = gs.h;
-      gs.time++;
       // Mirror gs.state into React so menu DOM can react to play/dead transitions.
       if (gs.state !== gs._lastViewSeen) {
         gs._lastViewSeen = gs.state;
@@ -3002,17 +3000,35 @@ export default function StellarDrift() {
         if (gs.onPlanetChange) gs.onPlanetChange(gs.planetIdx);
       }
 
-      // Resolve current planet & speed at top so HUD always has it
+      // Fixed-timestep accumulator. Game logic always advances at 60 Hz
+      // regardless of RAF rate, so iOS Low Power Mode (RAF throttled to ~30 Hz),
+      // ProMotion 120 Hz iPhones, and laggy Android devices all play at the
+      // same speed. Catch-up is capped so a backgrounded tab can't spawn
+      // hundreds of updates in a single frame. The update body that follows
+      // stays at its original 8-space indent — visually under-indented inside
+      // this while — so the diff stays focused on the structural change.
+      const FIXED_DT = 1000 / 60;
+      const MAX_CATCHUP = 5;
+      if (gs._lastFrameTime == null) gs._lastFrameTime = now;
+      let frameDelta = now - gs._lastFrameTime;
+      gs._lastFrameTime = now;
+      if (frameDelta > 250) frameDelta = 250;
+      gs._timeAccumulator = (gs._timeAccumulator || 0) + frameDelta;
+      let _updates = 0;
+      while (gs._timeAccumulator >= FIXED_DT && _updates < MAX_CATCHUP) {
+      gs._timeAccumulator -= FIXED_DT;
+      _updates++;
+      const w = gs.w, h = gs.h;
+      gs.time++;
+      // Resolve current planet & speed (recomputed per logical step so a
+      // mid-update planet transition picks up the new palette immediately).
       const planet = PLANETS[gs.planetIdx];
       const phys = gs.phys;
       const s = phys.scale;
       // Speed = baseSpeed + per-level bonus + (score × speedPerObstacle).
-      // Each obstacle adds 1 to score; level bonus jumps as the player crosses
-      // into each new planet. speedMul is the ratio for the HUD "×".
       const levelBonus = (LEVEL_SPEED_BONUS[gs.planetIdx] || 0) * phys.widthScale;
       const scoreBonus = gs.score * phys.speedPerObstacle;
       const moveSpeed = phys.baseSpeed + levelBonus + scoreBonus;
-      const speedMul = moveSpeed / phys.baseSpeed;
 
       // Apply planet transition crossfade
       if (gs.planetTransition < 1) {
@@ -3222,10 +3238,30 @@ export default function StellarDrift() {
         if (p.life <= 0) gs.popups.splice(i, 1);
       }
 
-      // Shake decay
+      // Shake / flash / transition-card / score-flash decay (all tick once
+      // per logical 60 Hz step, not per RAF — so they last the same
+      // wall-clock duration on every device).
       if (gs.shake > 0) gs.shake--;
       if (gs.flash > 0) gs.flash--;
       if (gs.transitionCard > 0) gs.transitionCard--;
+      if (gs.scoreFlash > 0) gs.scoreFlash--;
+      }
+      // If we hit the catch-up cap (tab was backgrounded, debugger paused,
+      // GC stall), drop the rest of the debt rather than chasing it across
+      // many subsequent frames.
+      if (_updates >= MAX_CATCHUP) gs._timeAccumulator = 0;
+
+      // Draw locals — recomputed from the post-update game state. Only the
+      // values the draw path actually needs (ctx, w, h, planet, phys, s,
+      // speedMul for the HUD pill).
+      const ctx = canvas.getContext('2d');
+      const w = gs.w, h = gs.h;
+      const planet = PLANETS[gs.planetIdx];
+      const phys = gs.phys;
+      const s = phys.scale;
+      const _drawLevelBonus = (LEVEL_SPEED_BONUS[gs.planetIdx] || 0) * phys.widthScale;
+      const _drawScoreBonus = gs.score * phys.speedPerObstacle;
+      const speedMul = (phys.baseSpeed + _drawLevelBonus + _drawScoreBonus) / phys.baseSpeed;
 
       // ── DRAW to offscreen for bloom pass ──
       const offCtx = off.getContext('2d');
