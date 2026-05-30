@@ -126,6 +126,10 @@ const FROSTED_SCENE_BLUR_PX = 5;
 // Append ?fps to the URL to show a tiny on-canvas perf meter (fps, worst frame
 // interval, JS draw time). Off for normal users — read once at module load.
 const SHOW_FPS = typeof location !== 'undefined' && /[?&]fps\b/.test(location.search);
+// Append ?noaudio to fully disable the audio engine — a diagnostic A/B switch
+// to test whether Web Audio node/buffer churn is causing intermittent frame
+// drops (suspected when JS draw time is tiny but frames still stutter).
+const DISABLE_AUDIO = typeof location !== 'undefined' && /[?&]noaudio\b/.test(location.search);
 
 // ── Configurable constants ─────────────────────────────────────────
 // Set this to your deployed game URL. Used in the share-score snippet.
@@ -364,6 +368,7 @@ export default function StellarDrift() {
   // AUDIO ENGINE
   // ─────────────────────────────────────────────────────────────
   const initAudio = useCallback(() => {
+    if (DISABLE_AUDIO) return null;
     if (audioRef.current) return audioRef.current;
     try {
       const AC = window.AudioContext || window.webkitAudioContext;
