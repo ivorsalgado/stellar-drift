@@ -130,6 +130,9 @@ const SHOW_FPS = typeof location !== 'undefined' && /[?&]fps\b/.test(location.se
 // to test whether Web Audio node/buffer churn is causing intermittent frame
 // drops (suspected when JS draw time is tiny but frames still stutter).
 const DISABLE_AUDIO = typeof location !== 'undefined' && /[?&]noaudio\b/.test(location.search);
+// Append ?lowres to cap the canvas at 1x device-pixel-ratio — a diagnostic A/B
+// switch to test whether the GPU/compositor is the source of dropped frames.
+const LOW_RES = typeof location !== 'undefined' && /[?&]lowres\b/.test(location.search);
 
 // ── Configurable constants ─────────────────────────────────────────
 // Set this to your deployed game URL. Used in the share-score snippet.
@@ -3466,7 +3469,9 @@ export default function StellarDrift() {
 
     const resize = () => {
       const rect = container.getBoundingClientRect();
-      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      // ?lowres caps render resolution at 1x (diagnostic A/B for GPU-bound
+      // frame drops); otherwise cap device pixel ratio at 2x.
+      const dpr = LOW_RES ? 1 : Math.min(window.devicePixelRatio || 1, 2);
       const w = rect.width, h = rect.height;
       canvas.width = w * dpr;
       canvas.height = h * dpr;
