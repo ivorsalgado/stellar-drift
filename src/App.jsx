@@ -3000,59 +3000,42 @@ export default function StellarDrift() {
         if (gs.onPlanetChange) gs.onPlanetChange(gs.planetIdx);
       }
 
-      // Pick the number of physics sub-steps from the SMOOTHED RAF rate,
-      // not the instantaneous one. A single jittery frame (a tap that
-      // costs ~25 ms of paint, a GC pause, etc.) used to flip the count
-      // from 1 to 2 and produce a visible "catch-up snap" on obstacles.
-      // The running average has a ~10-frame time constant — slow enough
-      // to ignore one-off hitches, fast enough to catch a Low Power Mode
-      // toggle within ~150 ms.
-      //
-      // Steady-state behavior:
-      //   • normal 60 Hz       → 1 step per RAF (identical to original feel)
-      //   • Low Power ~30 Hz   → 2 steps per RAF (correct speed at 30 fps render)
-      //   • 120-240 Hz display → fractional accumulator, ~60 logical Hz
-      //
+      // Fixed-timestep accumulator with frame interpolation. Physics runs
+      // at a steady 60 Hz logical rate; the draw pass interpolates ship
+      // and column positions between the previous and current physics
+      // state by alpha = accumulator / FIXED_DT, so motion on screen stays
+      // smooth regardless of RAF rate and through one-off frame hitches:
+      //   • 60 Hz steady     → 1 step / RAF, alpha ≈ 1
+      //   • 30 Hz Low Power  → ~2 steps / RAF, smooth tweening between them
+      //   • 120-240 Hz       → 0 or 1 step / RAF, sub-step lerp on the in-betweens
+      //   • Tap-induced hitch → no catch-up snap; the visual just lerps
+      //                         to the new state over the next 1-2 RAFs
       // The update body below stays at its original 8-space indent —
-      // visually under-indented inside this for-loop — so the diff stays
+      // visually under-indented inside this while-loop — so the diff stays
       // focused on the structural change.
       const FIXED_DT = 1000 / 60;
+      const MAX_CATCHUP = 5;
       if (gs._lastFrameTime == null) gs._lastFrameTime = now;
       let frameDelta = now - gs._lastFrameTime;
       gs._lastFrameTime = now;
       if (frameDelta > 250) frameDelta = 250;
-      // Seed the average to 60 Hz so the first ~10 frames don't get
-      // classified as "high refresh" while the EMA is still converging.
-      gs._dtAvg = gs._dtAvg == null ? FIXED_DT : gs._dtAvg * 0.9 + frameDelta * 0.1;
-      const _avgRatio = gs._dtAvg / FIXED_DT;
-      let _stepsThisFrame;
-      if (_avgRatio < 0.75) {
-        // Display refresh consistently faster than 60 Hz (120 / 144 / 240 Hz
-        // laptops and ProMotion iPhones). Fractional accumulator so the
-        // logical rate stays ~60 Hz; jitter from the accumulator is invisible
-        // here because each RAF interval is only 4-8 ms.
-        gs._skipAccum = (gs._skipAccum || 0) + frameDelta / FIXED_DT;
-        if (gs._skipAccum >= 1) {
-          gs._skipAccum -= 1;
-          _stepsThisFrame = 1;
-        } else {
-          _stepsThisFrame = 0;
+      gs._physicsAccum = (gs._physicsAccum || 0) + frameDelta;
+      let _stepsThisFrame = 0;
+      while (gs._physicsAccum >= FIXED_DT && _stepsThisFrame < MAX_CATCHUP) {
+        gs._physicsAccum -= FIXED_DT;
+        _stepsThisFrame++;
+        // Snapshot positions BEFORE this step so the draw pass can lerp
+        // (prev → current) for visually-smooth motion between ticks.
+        gs.ship._prevX = gs.ship.x;
+        gs.ship._prevY = gs.ship.y;
+        gs.ship._prevTilt = gs.ship.tilt;
+        for (let _ci = 0; _ci < gs.columns.length; _ci++) {
+          gs.columns[_ci]._prevX = gs.columns[_ci].x;
         }
-      } else if (_avgRatio < 1.5) {
-        // Normal 60 Hz. Always exactly one step — a one-off jittery frame
-        // does NOT trigger a 2-step snap, because the EMA absorbs it.
-        gs._skipAccum = 0;
-        _stepsThisFrame = 1;
-      } else if (_avgRatio < 2.5) {
-        // Sustained ~30 Hz (iOS Low Power Mode).
-        gs._skipAccum = 0;
-        _stepsThisFrame = 2;
-      } else {
-        // Slower than 30 Hz — catch up, capped at 4.
-        gs._skipAccum = 0;
-        _stepsThisFrame = Math.min(4, Math.round(_avgRatio));
-      }
-      for (let _i = 0; _i < _stepsThisFrame; _i++) {
+        for (let _fi = 0; _fi < gs.fragments.length; _fi++) {
+          gs.fragments[_fi]._prevX = gs.fragments[_fi].x;
+          gs.fragments[_fi]._prevY = gs.fragments[_fi].y;
+        }
       const w = gs.w, h = gs.h;
       gs.time++;
       // Resolve current planet & speed (recomputed per logical step so a
@@ -3281,10 +3264,12 @@ export default function StellarDrift() {
       if (gs.transitionCard > 0) gs.transitionCard--;
       if (gs.scoreFlash > 0) gs.scoreFlash--;
       }
+      // If we hit the catch-up cap (backgrounded tab, debugger pause),
+      // clamp the accumulator so alpha stays in [0, 1] and we don't
+      // overshoot the interpolation.
+      if (gs._physicsAccum > FIXED_DT) gs._physicsAccum = FIXED_DT;
 
-      // Draw locals — recomputed from the post-update game state. Only the
-      // values the draw path actually needs (ctx, w, h, planet, phys, s,
-      // speedMul for the HUD pill).
+      // Draw locals — recomputed from the post-update game state.
       const ctx = canvas.getContext('2d');
       const w = gs.w, h = gs.h;
       const planet = PLANETS[gs.planetIdx];
@@ -3293,6 +3278,37 @@ export default function StellarDrift() {
       const _drawLevelBonus = (LEVEL_SPEED_BONUS[gs.planetIdx] || 0) * phys.widthScale;
       const _drawScoreBonus = gs.score * phys.speedPerObstacle;
       const speedMul = (phys.baseSpeed + _drawLevelBonus + _drawScoreBonus) / phys.baseSpeed;
+
+      // Frame interpolation. Temporarily replace ship / column / fragment
+      // positions with lerp(prev, current, alpha) values for the draw pass,
+      // then restore the true positions just before the catch block so the
+      // next physics step sees the correct state. alpha = 0 right after a
+      // step ran, approaches 1 as the accumulator fills toward the next.
+      const _alpha = Math.min(1, gs._physicsAccum / FIXED_DT);
+      const _shipOrigX = gs.ship.x;
+      const _shipOrigY = gs.ship.y;
+      const _shipOrigTilt = gs.ship.tilt;
+      if (gs.ship._prevX != null) {
+        gs.ship.x = gs.ship._prevX + (_shipOrigX - gs.ship._prevX) * _alpha;
+        gs.ship.y = gs.ship._prevY + (_shipOrigY - gs.ship._prevY) * _alpha;
+        gs.ship.tilt = gs.ship._prevTilt + (_shipOrigTilt - gs.ship._prevTilt) * _alpha;
+      }
+      const _colOrigX = gs.columns.map((c) => c.x);
+      for (let _ci = 0; _ci < gs.columns.length; _ci++) {
+        const _c = gs.columns[_ci];
+        if (_c._prevX != null) {
+          _c.x = _c._prevX + (_colOrigX[_ci] - _c._prevX) * _alpha;
+        }
+      }
+      const _fragOrigX = gs.fragments.map((f) => f.x);
+      const _fragOrigY = gs.fragments.map((f) => f.y);
+      for (let _fi = 0; _fi < gs.fragments.length; _fi++) {
+        const _f = gs.fragments[_fi];
+        if (_f._prevX != null) {
+          _f.x = _f._prevX + (_fragOrigX[_fi] - _f._prevX) * _alpha;
+          _f.y = _f._prevY + (_fragOrigY[_fi] - _f._prevY) * _alpha;
+        }
+      }
 
       // ── DRAW to offscreen for bloom pass ──
       const offCtx = off.getContext('2d');
@@ -3421,6 +3437,19 @@ export default function StellarDrift() {
         drawStartScreen(ctx, gs, w, h);
       } else if (gs.state === 'dead') {
         drawDeathScreen(ctx, gs, w, h, gs.time, off);
+      }
+
+      // Restore the real physics positions (we mutated them above for the
+      // interpolated draw). The next physics step needs the true state.
+      gs.ship.x = _shipOrigX;
+      gs.ship.y = _shipOrigY;
+      gs.ship.tilt = _shipOrigTilt;
+      for (let _ci = 0; _ci < gs.columns.length; _ci++) {
+        gs.columns[_ci].x = _colOrigX[_ci];
+      }
+      for (let _fi = 0; _fi < gs.fragments.length; _fi++) {
+        gs.fragments[_fi].x = _fragOrigX[_fi];
+        gs.fragments[_fi].y = _fragOrigY[_fi];
       }
     } catch (err) {
       console.error('[STELLAR DRIFT] loop error', err);
