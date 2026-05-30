@@ -3000,24 +3000,39 @@ export default function StellarDrift() {
         if (gs.onPlanetChange) gs.onPlanetChange(gs.planetIdx);
       }
 
-      // Fixed-timestep accumulator. Game logic always advances at 60 Hz
-      // regardless of RAF rate, so iOS Low Power Mode (RAF throttled to ~30 Hz),
-      // ProMotion 120 Hz iPhones, and laggy Android devices all play at the
-      // same speed. Catch-up is capped so a backgrounded tab can't spawn
-      // hundreds of updates in a single frame. The update body that follows
-      // stays at its original 8-space indent — visually under-indented inside
-      // this while — so the diff stays focused on the structural change.
+      // Snap update count to an integer based on real elapsed time. A
+      // strict accumulator drifts against RAF's natural jitter and produces
+      // visible stutter at 60 Hz (occasional 0-update or 2-update frames
+      // that make obstacles judder and gravity feel snappy). Snapping to
+      // integer step counts preserves the original 60 Hz feel exactly:
+      //   • normal 60 Hz     → 1 step per RAF
+      //   • Low Power 30 Hz  → 2 steps per RAF
+      //   • 120 Hz ProMotion → 1 step every other RAF
+      // The update body below stays at its original 8-space indent —
+      // visually under-indented inside this for-loop — so the diff stays
+      // focused on the structural change.
       const FIXED_DT = 1000 / 60;
-      const MAX_CATCHUP = 5;
       if (gs._lastFrameTime == null) gs._lastFrameTime = now;
       let frameDelta = now - gs._lastFrameTime;
       gs._lastFrameTime = now;
       if (frameDelta > 250) frameDelta = 250;
-      gs._timeAccumulator = (gs._timeAccumulator || 0) + frameDelta;
-      let _updates = 0;
-      while (gs._timeAccumulator >= FIXED_DT && _updates < MAX_CATCHUP) {
-      gs._timeAccumulator -= FIXED_DT;
-      _updates++;
+      const _dtRatio = frameDelta / FIXED_DT;
+      let _stepsThisFrame;
+      if (_dtRatio < 0.75) {
+        // Faster than 60 Hz (e.g. 120 Hz ProMotion). Step every other RAF.
+        gs._skipPhase = !gs._skipPhase;
+        _stepsThisFrame = gs._skipPhase ? 1 : 0;
+      } else if (_dtRatio < 1.5) {
+        gs._skipPhase = false;
+        _stepsThisFrame = 1;
+      } else if (_dtRatio < 2.5) {
+        gs._skipPhase = false;
+        _stepsThisFrame = 2;
+      } else {
+        gs._skipPhase = false;
+        _stepsThisFrame = Math.min(4, Math.round(_dtRatio));
+      }
+      for (let _i = 0; _i < _stepsThisFrame; _i++) {
       const w = gs.w, h = gs.h;
       gs.time++;
       // Resolve current planet & speed (recomputed per logical step so a
@@ -3246,10 +3261,6 @@ export default function StellarDrift() {
       if (gs.transitionCard > 0) gs.transitionCard--;
       if (gs.scoreFlash > 0) gs.scoreFlash--;
       }
-      // If we hit the catch-up cap (tab was backgrounded, debugger paused,
-      // GC stall), drop the rest of the debt rather than chasing it across
-      // many subsequent frames.
-      if (_updates >= MAX_CATCHUP) gs._timeAccumulator = 0;
 
       // Draw locals — recomputed from the post-update game state. Only the
       // values the draw path actually needs (ctx, w, h, planet, phys, s,
