@@ -231,6 +231,14 @@ const getWidthScale = (w) => w / BASE_W;
 // planetIdx (0 = Mercury / Level 1, 9 = The Void / Level 10).
 const LEVEL_SPEED_BONUS = [0, 0.15, 0.3, 0.5, 0.7, 0.9, 1.15, 1.4, 1.7, 2.0];
 
+// The simulation runs at a fixed 60 Hz tick (one step per FIXED_STEP_MS of real
+// time); rendering runs at whatever rate rAF fires. This decouples game speed
+// from the display refresh rate so it doesn't halve under iOS Low Power Mode.
+const FIXED_STEP_MS = 1000 / 60;
+// Cap how much real time a single frame may advance the sim, so a long stall
+// (e.g. a backgrounded tab) can't trigger a catch-up avalanche.
+const MAX_FRAME_DELTA_MS = 100;
+
 const PHYSICS_BASE = {
   gravity: 0.38,
   impulse: -8.2,
@@ -2977,7 +2985,7 @@ export default function StellarDrift() {
   // ─────────────────────────────────────────────────────────────
   // GAME LOOP
   // ─────────────────────────────────────────────────────────────
-  const step = useCallback(() => {
+  const step = useCallback((timestamp) => {
     const canvas = canvasRef.current;
     const off = offscreenRef.current;
     const gs = gsRef.current;
@@ -2989,243 +2997,272 @@ export default function StellarDrift() {
     try {
       const ctx = canvas.getContext('2d');
       const w = gs.w, h = gs.h;
-      gs.time++;
-      // Mirror gs.state into React so menu DOM can react to play/dead transitions.
+      const phys = gs.phys;
+      const s = phys.scale;
+
+      // ── FIXED-TIMESTEP ACCUMULATOR ──
+      // The simulation advances in fixed 1/60 s ticks, independent of the real
+      // display refresh rate, so game speed stays constant when rAF is
+      // throttled — notably iOS Low Power Mode, which caps requestAnimationFrame
+      // to ~30 fps and would otherwise run the whole game at half speed.
+      // Rendering still happens once per rAF callback, after the ticks below.
+      const now = timestamp ?? performance.now();
+      if (gs._lastFrameTime == null) { gs._lastFrameTime = now; gs._timeAccumulator = 0; }
+      let frameDelta = now - gs._lastFrameTime;
+      gs._lastFrameTime = now;
+      // Clamp so a long stall (e.g. a backgrounded tab) can't trigger a
+      // catch-up avalanche; we briefly run slow instead of teleporting.
+      if (frameDelta > MAX_FRAME_DELTA_MS) frameDelta = MAX_FRAME_DELTA_MS;
+      gs._timeAccumulator += frameDelta;
+
+      // moveSpeed depends on score/planet, which can change mid-loop, so it is
+      // recomputed each tick (and once more after, for the HUD/render pass).
+      let moveSpeed = 0;
+      while (gs._timeAccumulator >= FIXED_STEP_MS) {
+        gs._timeAccumulator -= FIXED_STEP_MS;
+        gs.time++;
+
+        // Resolve current planet & speed for this tick.
+        const planet = PLANETS[gs.planetIdx];
+        // Speed = baseSpeed + per-level bonus + (score × speedPerObstacle).
+        // Each obstacle adds 1 to score; level bonus jumps as the player crosses
+        // into each new planet.
+        const levelBonus = (LEVEL_SPEED_BONUS[gs.planetIdx] || 0) * phys.widthScale;
+        const scoreBonus = gs.score * phys.speedPerObstacle;
+        moveSpeed = phys.baseSpeed + levelBonus + scoreBonus;
+
+        // Apply planet transition crossfade
+        if (gs.planetTransition < 1) {
+          gs.planetTransition = Math.min(1, gs.planetTransition + 1 / 90);
+        }
+
+        // ── UPDATE ──
+        if (gs.state === 'playing') {
+          // Spawn
+          gs.framesSinceSpawn++;
+          if (gs.framesSinceSpawn >= gs.spawnInterval) {
+            spawnColumn(gs);
+          }
+          // Ship physics — momentum-based, floaty
+          gs.ship.vy += phys.gravity;
+          if (gs.ship.vy < phys.maxRiseSpeed) gs.ship.vy = phys.maxRiseSpeed;
+          if (gs.ship.vy > phys.maxFallSpeed) gs.ship.vy = phys.maxFallSpeed;
+          gs.ship.y += gs.ship.vy;
+          // Smoothed tilt — based on unscaled vy ratio so feel is consistent across viewports
+          const targetTilt = Math.max(-0.5, Math.min(0.9, (gs.ship.vy / s) * 0.06));
+          gs.ship.tilt += (targetTilt - gs.ship.tilt) * phys.tiltSmoothing;
+          // Lateral drift influenced by tilt + ambient sway + gentle recenter
+          const restX = gs.w * phys.shipX;
+          gs.ship.vx += gs.ship.tilt * phys.lateralTiltInfluence;
+          gs.ship.vx += Math.sin(gs.time * 0.04) * 0.015 * phys.lateralAmbientSway;
+          gs.ship.vx += (restX - gs.ship.x) * phys.lateralRecenter;
+          gs.ship.vx *= phys.lateralDamping;
+          gs.ship.x += gs.ship.vx;
+          // Trail
+          if (gs.time % 2 === 0) {
+            gs.ship.trail.push({ x: gs.ship.x - 12 * s, y: gs.ship.y });
+            if (gs.ship.trail.length > 12) gs.ship.trail.shift();
+          }
+          for (let i = gs.columns.length - 1; i >= 0; i--) {
+            const c = gs.columns[i];
+            c.x -= moveSpeed;
+            // Score?
+            if (!c.scored && c.x + phys.columnWidth < gs.ship.x - phys.shipRadius * 0.6) {
+              c.scored = true;
+              gs.score++;
+              gs.obstaclesInPlanet++;
+              gs.combo++;
+              gs.comboTimer = 180;
+              gs.scoreFlash = 10;
+              // Score popup
+              gs.popups.push({
+                text: '+1', x: c.x + phys.columnWidth / 2, y: c.gapY,
+                size: 22 * s, color: planet.accent,
+                life: 40, maxLife: 40, vy: -1 * s,
+              });
+              playScore(gs.combo);
+              if (gs.combo >= 4 && gs.combo % 4 === 0) {
+                gs.popups.push({
+                  text: `×${gs.combo} COMBO`, x: w / 2, y: h * 0.4,
+                  size: 32 * s, color: planet.accent,
+                  life: 50, maxLife: 50, vy: -0.6 * s,
+                });
+                playCombo();
+              }
+              // Milestones
+              if (gs.score === 10 || gs.score === 25 || gs.score === 50 || gs.score === 100) {
+                onMilestoneReached(gs.score);
+              }
+              // Milestone celebration particles
+              if (gs.score === 5 || gs.score === 15 || gs.score === 25 || gs.score === 50 || gs.score === 75 || gs.score === 100) {
+                for (let k = 0; k < 30; k++) {
+                  const a = Math.random() * Math.PI * 2;
+                  const sp = (Math.random() * 5 + 1.5) * s;
+                  gs.particles.push({
+                    x: c.x + phys.columnWidth / 2, y: c.gapY,
+                    vx: Math.cos(a) * sp, vy: Math.sin(a) * sp,
+                    r: (Math.random() * 3 + 1.5) * s,
+                    life: 50, maxLife: 50,
+                    color: planet.accent,
+                  });
+                }
+              }
+              // Music layer progression — starts at layer 1, hat+lead joins at 10.
+              if (gs.score === 10) setMusicLayer(2);
+              // Planet transition
+              if (gs.obstaclesInPlanet >= 15 && gs.planetIdx < PLANETS.length - 1) {
+                gs.prevPlanetIdx = gs.planetIdx;
+                gs.planetIdx++;
+                gs.obstaclesInPlanet = 0;
+                gs.planetTransition = 0;
+                gs.transitionCard = 120;
+                gs.combo = 0;
+                gs.comboTimer = 0;
+                gs.transitionCardPlanet = gs.planetIdx;
+                gs.gap = Math.max(phys.minGap, gs.gap - phys.gapShrinkPerPlanet);
+                gs.spawnInterval = Math.max(phys.minSpawnInterval, gs.spawnInterval - phys.spawnShrinkPerPlanet);
+                gs.stars = makeStars(w, h, 60, s);
+                gs.dust = makeDust(w, h, 30, s);
+                playLevelUp();
+              }
+            }
+            // Off-screen
+            if (c.x + phys.columnWidth + 20 * s < 0) {
+              gs.columns.splice(i, 1);
+              continue;
+            }
+            // Collision
+            const topH = c.gapY - c.gap / 2;
+            const botY = c.gapY + c.gap / 2;
+            const sx = gs.ship.x, sy = gs.ship.y, sr = phys.shipRadius - 2 * s;
+            if (sx + sr > c.x && sx - sr < c.x + phys.columnWidth) {
+              if (sy - sr < topH || sy + sr > botY) {
+                die(gs);
+              }
+            }
+          }
+          // Ground/ceiling
+          if (gs.ship.y - phys.shipRadius < 0) {
+            gs.ship.y = phys.shipRadius;
+            gs.ship.vy = 0;
+          }
+          if (gs.ship.y + phys.shipRadius > h) {
+            die(gs);
+          }
+          // Star Fragments — move with world, animate, collect on overlap
+          for (let i = gs.fragments.length - 1; i >= 0; i--) {
+            const f = gs.fragments[i];
+            f.x -= moveSpeed;
+            f.rot += 0.045;
+            f.bounce += 0.08;
+            if (!f.collected) {
+              const dx = f.x - gs.ship.x;
+              const dy = f.y - gs.ship.y;
+              const cr = phys.shipRadius + 12 * s;
+              if (dx * dx + dy * dy < cr * cr) {
+                f.collected = true;
+                const newTotal = loadFragments() + 1;
+                saveFragments(newTotal);
+                if (gs.onFragmentChange) gs.onFragmentChange(newTotal);
+                playFragment();
+                // Particle burst in accent
+                for (let k = 0; k < 22; k++) {
+                  const a = Math.random() * Math.PI * 2;
+                  const sp = (Math.random() * 4 + 1) * s;
+                  gs.particles.push({
+                    x: f.x, y: f.y,
+                    vx: Math.cos(a) * sp, vy: Math.sin(a) * sp,
+                    r: (Math.random() * 2.5 + 1) * s,
+                    life: 40, maxLife: 40,
+                    color: planet.accent,
+                  });
+                }
+                gs.popups.push({
+                  text: '+1 ★', x: f.x, y: f.y - 10 * s,
+                  size: 18 * s, color: planet.accent,
+                  life: 36, maxLife: 36, vy: -1 * s,
+                });
+              }
+            }
+            if (f.collected || f.x + 30 * s < 0) {
+              gs.fragments.splice(i, 1);
+            }
+          }
+          // Combo timer
+          if (gs.comboTimer > 0) {
+            gs.comboTimer--;
+            if (gs.comboTimer === 0) gs.combo = 0;
+          }
+        } else if (gs.state === 'start') {
+          // Idle ship bob
+          gs.ship.idleT += 0.04;
+          gs.ship.y = h * 0.5 + Math.sin(gs.ship.idleT) * 14 * s;
+          gs.ship.vy = Math.cos(gs.ship.idleT) * 14 * 0.04 * s;
+          gs.ship.vx = 0;
+          gs.ship.tilt = Math.cos(gs.ship.idleT) * 0.12;
+          gs.ship.x = w * phys.shipX;
+          if (gs.time % 4 === 0) {
+            gs.ship.trail.push({ x: gs.ship.x - 12 * s, y: gs.ship.y });
+            if (gs.ship.trail.length > 10) gs.ship.trail.shift();
+          }
+        } else if (gs.state === 'dead') {
+          gs.deathOverlay = Math.min(20, gs.deathOverlay + 1);
+          // Ship falls
+          gs.ship.vy += phys.gravity * 0.6;
+          gs.ship.y += gs.ship.vy;
+          gs.ship.x += gs.ship.vx;
+          gs.ship.vx *= 0.95;
+          gs.ship.tilt = Math.min(1.2, gs.ship.tilt + 0.02);
+        }
+
+        // Particles update
+        for (let i = gs.particles.length - 1; i >= 0; i--) {
+          const p = gs.particles[i];
+          p.x += p.vx; p.y += p.vy;
+          p.vy += 0.08 * s;
+          p.vx *= 0.98;
+          p.life--;
+          if (p.life <= 0) gs.particles.splice(i, 1);
+        }
+        // Rings update
+        for (let i = gs.rings.length - 1; i >= 0; i--) {
+          const r = gs.rings[i];
+          r.radius += 2.5 * (r.scale || s);
+          r.life--;
+          if (r.life <= 0) gs.rings.splice(i, 1);
+        }
+        // Popups update
+        for (let i = gs.popups.length - 1; i >= 0; i--) {
+          const p = gs.popups[i];
+          p.y += p.vy || -1 * s;
+          p.life--;
+          if (p.life <= 0) gs.popups.splice(i, 1);
+        }
+
+        // Shake decay
+        if (gs.shake > 0) gs.shake--;
+        if (gs.flash > 0) gs.flash--;
+        if (gs.transitionCard > 0) gs.transitionCard--;
+      }
+
+      // Resolve the final planet & HUD speed multiplier after the ticks above,
+      // so the render/HUD reflect the latest simulation state this frame.
+      const planet = PLANETS[gs.planetIdx];
+      const speedMul = (phys.baseSpeed
+        + (LEVEL_SPEED_BONUS[gs.planetIdx] || 0) * phys.widthScale
+        + gs.score * phys.speedPerObstacle) / phys.baseSpeed;
+
+      // Mirror gs.state / planetIdx into React once per frame, after updates, so
+      // menu DOM (play/dead transitions, frosted tints, accent glows, leaderboard
+      // player-row highlight) reacts to the latest simulation state.
       if (gs.state !== gs._lastViewSeen) {
         gs._lastViewSeen = gs.state;
         if (gs.onView) gs.onView(gs.state);
       }
-      // Mirror gs.planetIdx into React so menu surfaces (frosted tints, accent
-      // glows, leaderboard player-row highlight) update as the player advances.
       if (gs.planetIdx !== gs._lastPlanetSeen) {
         gs._lastPlanetSeen = gs.planetIdx;
         if (gs.onPlanetChange) gs.onPlanetChange(gs.planetIdx);
       }
-
-      // Resolve current planet & speed at top so HUD always has it
-      const planet = PLANETS[gs.planetIdx];
-      const phys = gs.phys;
-      const s = phys.scale;
-      // Speed = baseSpeed + per-level bonus + (score × speedPerObstacle).
-      // Each obstacle adds 1 to score; level bonus jumps as the player crosses
-      // into each new planet. speedMul is the ratio for the HUD "×".
-      const levelBonus = (LEVEL_SPEED_BONUS[gs.planetIdx] || 0) * phys.widthScale;
-      const scoreBonus = gs.score * phys.speedPerObstacle;
-      const moveSpeed = phys.baseSpeed + levelBonus + scoreBonus;
-      const speedMul = moveSpeed / phys.baseSpeed;
-
-      // Apply planet transition crossfade
-      if (gs.planetTransition < 1) {
-        gs.planetTransition = Math.min(1, gs.planetTransition + 1 / 90);
-      }
-
-      // ── UPDATE ──
-      if (gs.state === 'playing') {
-        // Spawn
-        gs.framesSinceSpawn++;
-        if (gs.framesSinceSpawn >= gs.spawnInterval) {
-          spawnColumn(gs);
-        }
-        // Ship physics — momentum-based, floaty
-        gs.ship.vy += phys.gravity;
-        if (gs.ship.vy < phys.maxRiseSpeed) gs.ship.vy = phys.maxRiseSpeed;
-        if (gs.ship.vy > phys.maxFallSpeed) gs.ship.vy = phys.maxFallSpeed;
-        gs.ship.y += gs.ship.vy;
-        // Smoothed tilt — based on unscaled vy ratio so feel is consistent across viewports
-        const targetTilt = Math.max(-0.5, Math.min(0.9, (gs.ship.vy / s) * 0.06));
-        gs.ship.tilt += (targetTilt - gs.ship.tilt) * phys.tiltSmoothing;
-        // Lateral drift influenced by tilt + ambient sway + gentle recenter
-        const restX = gs.w * phys.shipX;
-        gs.ship.vx += gs.ship.tilt * phys.lateralTiltInfluence;
-        gs.ship.vx += Math.sin(gs.time * 0.04) * 0.015 * phys.lateralAmbientSway;
-        gs.ship.vx += (restX - gs.ship.x) * phys.lateralRecenter;
-        gs.ship.vx *= phys.lateralDamping;
-        gs.ship.x += gs.ship.vx;
-        // Trail
-        if (gs.time % 2 === 0) {
-          gs.ship.trail.push({ x: gs.ship.x - 12 * s, y: gs.ship.y });
-          if (gs.ship.trail.length > 12) gs.ship.trail.shift();
-        }
-        for (let i = gs.columns.length - 1; i >= 0; i--) {
-          const c = gs.columns[i];
-          c.x -= moveSpeed;
-          // Score?
-          if (!c.scored && c.x + phys.columnWidth < gs.ship.x - phys.shipRadius * 0.6) {
-            c.scored = true;
-            gs.score++;
-            gs.obstaclesInPlanet++;
-            gs.combo++;
-            gs.comboTimer = 180;
-            gs.scoreFlash = 10;
-            // Score popup
-            gs.popups.push({
-              text: '+1', x: c.x + phys.columnWidth / 2, y: c.gapY,
-              size: 22 * s, color: planet.accent,
-              life: 40, maxLife: 40, vy: -1 * s,
-            });
-            playScore(gs.combo);
-            if (gs.combo >= 4 && gs.combo % 4 === 0) {
-              gs.popups.push({
-                text: `×${gs.combo} COMBO`, x: w / 2, y: h * 0.4,
-                size: 32 * s, color: planet.accent,
-                life: 50, maxLife: 50, vy: -0.6 * s,
-              });
-              playCombo();
-            }
-            // Milestones
-            if (gs.score === 10 || gs.score === 25 || gs.score === 50 || gs.score === 100) {
-              onMilestoneReached(gs.score);
-            }
-            // Milestone celebration particles
-            if (gs.score === 5 || gs.score === 15 || gs.score === 25 || gs.score === 50 || gs.score === 75 || gs.score === 100) {
-              for (let k = 0; k < 30; k++) {
-                const a = Math.random() * Math.PI * 2;
-                const sp = (Math.random() * 5 + 1.5) * s;
-                gs.particles.push({
-                  x: c.x + phys.columnWidth / 2, y: c.gapY,
-                  vx: Math.cos(a) * sp, vy: Math.sin(a) * sp,
-                  r: (Math.random() * 3 + 1.5) * s,
-                  life: 50, maxLife: 50,
-                  color: planet.accent,
-                });
-              }
-            }
-            // Music layer progression — starts at layer 1, hat+lead joins at 10.
-            if (gs.score === 10) setMusicLayer(2);
-            // Planet transition
-            if (gs.obstaclesInPlanet >= 15 && gs.planetIdx < PLANETS.length - 1) {
-              gs.prevPlanetIdx = gs.planetIdx;
-              gs.planetIdx++;
-              gs.obstaclesInPlanet = 0;
-              gs.planetTransition = 0;
-              gs.transitionCard = 120;
-              gs.combo = 0;
-              gs.comboTimer = 0;
-              gs.transitionCardPlanet = gs.planetIdx;
-              gs.gap = Math.max(phys.minGap, gs.gap - phys.gapShrinkPerPlanet);
-              gs.spawnInterval = Math.max(phys.minSpawnInterval, gs.spawnInterval - phys.spawnShrinkPerPlanet);
-              gs.stars = makeStars(w, h, 60, s);
-              gs.dust = makeDust(w, h, 30, s);
-              playLevelUp();
-            }
-          }
-          // Off-screen
-          if (c.x + phys.columnWidth + 20 * s < 0) {
-            gs.columns.splice(i, 1);
-            continue;
-          }
-          // Collision
-          const topH = c.gapY - c.gap / 2;
-          const botY = c.gapY + c.gap / 2;
-          const sx = gs.ship.x, sy = gs.ship.y, sr = phys.shipRadius - 2 * s;
-          if (sx + sr > c.x && sx - sr < c.x + phys.columnWidth) {
-            if (sy - sr < topH || sy + sr > botY) {
-              die(gs);
-            }
-          }
-        }
-        // Ground/ceiling
-        if (gs.ship.y - phys.shipRadius < 0) {
-          gs.ship.y = phys.shipRadius;
-          gs.ship.vy = 0;
-        }
-        if (gs.ship.y + phys.shipRadius > h) {
-          die(gs);
-        }
-        // Star Fragments — move with world, animate, collect on overlap
-        for (let i = gs.fragments.length - 1; i >= 0; i--) {
-          const f = gs.fragments[i];
-          f.x -= moveSpeed;
-          f.rot += 0.045;
-          f.bounce += 0.08;
-          if (!f.collected) {
-            const dx = f.x - gs.ship.x;
-            const dy = f.y - gs.ship.y;
-            const cr = phys.shipRadius + 12 * s;
-            if (dx * dx + dy * dy < cr * cr) {
-              f.collected = true;
-              const newTotal = loadFragments() + 1;
-              saveFragments(newTotal);
-              if (gs.onFragmentChange) gs.onFragmentChange(newTotal);
-              playFragment();
-              // Particle burst in accent
-              for (let k = 0; k < 22; k++) {
-                const a = Math.random() * Math.PI * 2;
-                const sp = (Math.random() * 4 + 1) * s;
-                gs.particles.push({
-                  x: f.x, y: f.y,
-                  vx: Math.cos(a) * sp, vy: Math.sin(a) * sp,
-                  r: (Math.random() * 2.5 + 1) * s,
-                  life: 40, maxLife: 40,
-                  color: planet.accent,
-                });
-              }
-              gs.popups.push({
-                text: '+1 ★', x: f.x, y: f.y - 10 * s,
-                size: 18 * s, color: planet.accent,
-                life: 36, maxLife: 36, vy: -1 * s,
-              });
-            }
-          }
-          if (f.collected || f.x + 30 * s < 0) {
-            gs.fragments.splice(i, 1);
-          }
-        }
-        // Combo timer
-        if (gs.comboTimer > 0) {
-          gs.comboTimer--;
-          if (gs.comboTimer === 0) gs.combo = 0;
-        }
-      } else if (gs.state === 'start') {
-        // Idle ship bob
-        gs.ship.idleT += 0.04;
-        gs.ship.y = h * 0.5 + Math.sin(gs.ship.idleT) * 14 * s;
-        gs.ship.vy = Math.cos(gs.ship.idleT) * 14 * 0.04 * s;
-        gs.ship.vx = 0;
-        gs.ship.tilt = Math.cos(gs.ship.idleT) * 0.12;
-        gs.ship.x = w * phys.shipX;
-        if (gs.time % 4 === 0) {
-          gs.ship.trail.push({ x: gs.ship.x - 12 * s, y: gs.ship.y });
-          if (gs.ship.trail.length > 10) gs.ship.trail.shift();
-        }
-      } else if (gs.state === 'dead') {
-        gs.deathOverlay = Math.min(20, gs.deathOverlay + 1);
-        // Ship falls
-        gs.ship.vy += phys.gravity * 0.6;
-        gs.ship.y += gs.ship.vy;
-        gs.ship.x += gs.ship.vx;
-        gs.ship.vx *= 0.95;
-        gs.ship.tilt = Math.min(1.2, gs.ship.tilt + 0.02);
-      }
-
-      // Particles update
-      for (let i = gs.particles.length - 1; i >= 0; i--) {
-        const p = gs.particles[i];
-        p.x += p.vx; p.y += p.vy;
-        p.vy += 0.08 * s;
-        p.vx *= 0.98;
-        p.life--;
-        if (p.life <= 0) gs.particles.splice(i, 1);
-      }
-      // Rings update
-      for (let i = gs.rings.length - 1; i >= 0; i--) {
-        const r = gs.rings[i];
-        r.radius += 2.5 * (r.scale || s);
-        r.life--;
-        if (r.life <= 0) gs.rings.splice(i, 1);
-      }
-      // Popups update
-      for (let i = gs.popups.length - 1; i >= 0; i--) {
-        const p = gs.popups[i];
-        p.y += p.vy || -1 * s;
-        p.life--;
-        if (p.life <= 0) gs.popups.splice(i, 1);
-      }
-
-      // Shake decay
-      if (gs.shake > 0) gs.shake--;
-      if (gs.flash > 0) gs.flash--;
-      if (gs.transitionCard > 0) gs.transitionCard--;
 
       // ── DRAW to offscreen for bloom pass ──
       const offCtx = off.getContext('2d');
