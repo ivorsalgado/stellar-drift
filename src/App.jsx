@@ -3000,44 +3000,29 @@ export default function StellarDrift() {
         if (gs.onPlanetChange) gs.onPlanetChange(gs.planetIdx);
       }
 
-      // Fixed-timestep accumulator with frame interpolation. Physics runs
-      // at a steady 60 Hz logical rate; the draw pass interpolates ship
-      // and column positions between the previous and current physics
-      // state by alpha = accumulator / FIXED_DT, so motion on screen stays
-      // smooth regardless of RAF rate and through one-off frame hitches:
-      //   • 60 Hz steady     → 1 step / RAF, alpha ≈ 1
-      //   • 30 Hz Low Power  → ~2 steps / RAF, smooth tweening between them
-      //   • 120-240 Hz       → 0 or 1 step / RAF, sub-step lerp on the in-betweens
-      //   • Tap-induced hitch → no catch-up snap; the visual just lerps
-      //                         to the new state over the next 1-2 RAFs
-      // The update body below stays at its original 8-space indent —
-      // visually under-indented inside this while-loop — so the diff stays
-      // focused on the structural change.
+      // Frame-rate-independent update. Physics integrates ONCE per RAF, scaling
+      // every per-frame quantity by `dt` (the number of 60 Hz steps this frame
+      // represents). The resulting true state is drawn directly — no fixed-step
+      // accumulator, no interpolation. A late frame simply advances proportionally
+      // and is shown immediately, so there's no catch-up snap and no added latency:
+      //   • 60 Hz steady     → dt ≈ 1
+      //   • 30 Hz Low Power  → dt ≈ 2 (everything moves twice as far per frame)
+      //   • 120-240 Hz       → dt ≈ 0.5-0.25 (smaller, smoother steps)
+      //   • Tap/GC hitch      → one larger-but-correct step, drawn live
       const FIXED_DT = 1000 / 60;
-      const MAX_CATCHUP = 5;
-      if (gs._lastFrameTime == null) gs._lastFrameTime = now;
+      const MAX_DT = 3;
+      if (gs._lastFrameTime == null) gs._lastFrameTime = now - FIXED_DT;
       let frameDelta = now - gs._lastFrameTime;
       gs._lastFrameTime = now;
       if (frameDelta > 250) frameDelta = 250;
-      gs._physicsAccum = (gs._physicsAccum || 0) + frameDelta;
-      let _stepsThisFrame = 0;
-      while (gs._physicsAccum >= FIXED_DT && _stepsThisFrame < MAX_CATCHUP) {
-        gs._physicsAccum -= FIXED_DT;
-        _stepsThisFrame++;
-        // Snapshot positions BEFORE this step so the draw pass can lerp
-        // (prev → current) for visually-smooth motion between ticks.
-        gs.ship._prevX = gs.ship.x;
-        gs.ship._prevY = gs.ship.y;
-        gs.ship._prevTilt = gs.ship.tilt;
-        for (let _ci = 0; _ci < gs.columns.length; _ci++) {
-          gs.columns[_ci]._prevX = gs.columns[_ci].x;
-        }
-        for (let _fi = 0; _fi < gs.fragments.length; _fi++) {
-          gs.fragments[_fi]._prevX = gs.fragments[_fi].x;
-          gs.fragments[_fi]._prevY = gs.fragments[_fi].y;
-        }
+      // dt = how many 60 Hz steps this RAF represents (1.0 @ 60fps, ~2.0 @ 30fps
+      // Low Power, ~0.5 @ 120fps). Clamped so a long stall can't tunnel the ship
+      // through a column on resume.
+      let dt = frameDelta / FIXED_DT;
+      if (dt > MAX_DT) dt = MAX_DT;
+      if (dt < 0) dt = 0;
       const w = gs.w, h = gs.h;
-      gs.time++;
+      gs.time += dt;
       // Resolve current planet & speed (recomputed per logical step so a
       // mid-update planet transition picks up the new palette immediately).
       const planet = PLANETS[gs.planetIdx];
@@ -3050,39 +3035,44 @@ export default function StellarDrift() {
 
       // Apply planet transition crossfade
       if (gs.planetTransition < 1) {
-        gs.planetTransition = Math.min(1, gs.planetTransition + 1 / 90);
+        gs.planetTransition = Math.min(1, gs.planetTransition + dt / 90);
       }
 
       // ── UPDATE ──
       if (gs.state === 'playing') {
         // Spawn
-        gs.framesSinceSpawn++;
+        gs.framesSinceSpawn += dt;
         if (gs.framesSinceSpawn >= gs.spawnInterval) {
           spawnColumn(gs);
         }
-        // Ship physics — momentum-based, floaty
-        gs.ship.vy += phys.gravity;
+        // Ship physics — momentum-based, floaty. vy/vx carry "displacement per
+        // 60 Hz step"; positions integrate by * dt, accelerations add by * dt,
+        // and exponential damping uses pow(base, dt) so feel is identical at
+        // any frame rate.
+        gs.ship.vy += phys.gravity * dt;
         if (gs.ship.vy < phys.maxRiseSpeed) gs.ship.vy = phys.maxRiseSpeed;
         if (gs.ship.vy > phys.maxFallSpeed) gs.ship.vy = phys.maxFallSpeed;
-        gs.ship.y += gs.ship.vy;
+        gs.ship.y += gs.ship.vy * dt;
         // Smoothed tilt — based on unscaled vy ratio so feel is consistent across viewports
         const targetTilt = Math.max(-0.5, Math.min(0.9, (gs.ship.vy / s) * 0.06));
-        gs.ship.tilt += (targetTilt - gs.ship.tilt) * phys.tiltSmoothing;
+        gs.ship.tilt += (targetTilt - gs.ship.tilt) * (1 - Math.pow(1 - phys.tiltSmoothing, dt));
         // Lateral drift influenced by tilt + ambient sway + gentle recenter
         const restX = gs.w * phys.shipX;
-        gs.ship.vx += gs.ship.tilt * phys.lateralTiltInfluence;
-        gs.ship.vx += Math.sin(gs.time * 0.04) * 0.015 * phys.lateralAmbientSway;
-        gs.ship.vx += (restX - gs.ship.x) * phys.lateralRecenter;
-        gs.ship.vx *= phys.lateralDamping;
-        gs.ship.x += gs.ship.vx;
-        // Trail
-        if (gs.time % 2 === 0) {
+        gs.ship.vx += gs.ship.tilt * phys.lateralTiltInfluence * dt;
+        gs.ship.vx += Math.sin(gs.time * 0.04) * 0.015 * phys.lateralAmbientSway * dt;
+        gs.ship.vx += (restX - gs.ship.x) * phys.lateralRecenter * dt;
+        gs.ship.vx *= Math.pow(phys.lateralDamping, dt);
+        gs.ship.x += gs.ship.vx * dt;
+        // Trail — emit at a steady ~30 Hz (every 2 logical steps) regardless of fps
+        gs._trailAccum = (gs._trailAccum || 0) + dt;
+        if (gs._trailAccum >= 2) {
+          gs._trailAccum -= 2;
           gs.ship.trail.push({ x: gs.ship.x - 12 * s, y: gs.ship.y });
           if (gs.ship.trail.length > 12) gs.ship.trail.shift();
         }
         for (let i = gs.columns.length - 1; i >= 0; i--) {
           const c = gs.columns[i];
-          c.x -= moveSpeed;
+          c.x -= moveSpeed * dt;
           // Score?
           if (!c.scored && c.x + phys.columnWidth < gs.ship.x - phys.shipRadius * 0.6) {
             c.scored = true;
@@ -3169,9 +3159,9 @@ export default function StellarDrift() {
         // Star Fragments — move with world, animate, collect on overlap
         for (let i = gs.fragments.length - 1; i >= 0; i--) {
           const f = gs.fragments[i];
-          f.x -= moveSpeed;
-          f.rot += 0.045;
-          f.bounce += 0.08;
+          f.x -= moveSpeed * dt;
+          f.rot += 0.045 * dt;
+          f.bounce += 0.08 * dt;
           if (!f.collected) {
             const dx = f.x - gs.ship.x;
             const dy = f.y - gs.ship.y;
@@ -3207,108 +3197,76 @@ export default function StellarDrift() {
         }
         // Combo timer
         if (gs.comboTimer > 0) {
-          gs.comboTimer--;
-          if (gs.comboTimer === 0) gs.combo = 0;
+          gs.comboTimer -= dt;
+          if (gs.comboTimer <= 0) { gs.comboTimer = 0; gs.combo = 0; }
         }
       } else if (gs.state === 'start') {
-        // Idle ship bob
-        gs.ship.idleT += 0.04;
+        // Idle ship bob — position is derived from idleT (a phase), so only
+        // the phase advances by dt; y/vy/tilt are read straight off it.
+        gs.ship.idleT += 0.04 * dt;
         gs.ship.y = h * 0.5 + Math.sin(gs.ship.idleT) * 14 * s;
         gs.ship.vy = Math.cos(gs.ship.idleT) * 14 * 0.04 * s;
         gs.ship.vx = 0;
         gs.ship.tilt = Math.cos(gs.ship.idleT) * 0.12;
         gs.ship.x = w * phys.shipX;
-        if (gs.time % 4 === 0) {
+        gs._trailAccum = (gs._trailAccum || 0) + dt;
+        if (gs._trailAccum >= 4) {
+          gs._trailAccum -= 4;
           gs.ship.trail.push({ x: gs.ship.x - 12 * s, y: gs.ship.y });
           if (gs.ship.trail.length > 10) gs.ship.trail.shift();
         }
       } else if (gs.state === 'dead') {
-        gs.deathOverlay = Math.min(20, gs.deathOverlay + 1);
+        gs.deathOverlay = Math.min(20, gs.deathOverlay + dt);
         // Ship falls
-        gs.ship.vy += phys.gravity * 0.6;
-        gs.ship.y += gs.ship.vy;
-        gs.ship.x += gs.ship.vx;
-        gs.ship.vx *= 0.95;
-        gs.ship.tilt = Math.min(1.2, gs.ship.tilt + 0.02);
+        gs.ship.vy += phys.gravity * 0.6 * dt;
+        gs.ship.y += gs.ship.vy * dt;
+        gs.ship.x += gs.ship.vx * dt;
+        gs.ship.vx *= Math.pow(0.95, dt);
+        gs.ship.tilt = Math.min(1.2, gs.ship.tilt + 0.02 * dt);
       }
 
       // Particles update
       for (let i = gs.particles.length - 1; i >= 0; i--) {
         const p = gs.particles[i];
-        p.x += p.vx; p.y += p.vy;
-        p.vy += 0.08 * s;
-        p.vx *= 0.98;
-        p.life--;
+        p.x += p.vx * dt; p.y += p.vy * dt;
+        p.vy += 0.08 * s * dt;
+        p.vx *= Math.pow(0.98, dt);
+        p.life -= dt;
         if (p.life <= 0) gs.particles.splice(i, 1);
       }
       // Rings update
       for (let i = gs.rings.length - 1; i >= 0; i--) {
         const r = gs.rings[i];
-        r.radius += 2.5 * (r.scale || s);
-        r.life--;
+        r.radius += 2.5 * (r.scale || s) * dt;
+        r.life -= dt;
         if (r.life <= 0) gs.rings.splice(i, 1);
       }
       // Popups update
       for (let i = gs.popups.length - 1; i >= 0; i--) {
         const p = gs.popups[i];
-        p.y += p.vy || -1 * s;
-        p.life--;
+        p.y += (p.vy || -1 * s) * dt;
+        p.life -= dt;
         if (p.life <= 0) gs.popups.splice(i, 1);
       }
 
       // Shake / flash / transition-card / score-flash decay (all tick once
       // per logical 60 Hz step, not per RAF — so they last the same
       // wall-clock duration on every device).
-      if (gs.shake > 0) gs.shake--;
-      if (gs.flash > 0) gs.flash--;
-      if (gs.transitionCard > 0) gs.transitionCard--;
-      if (gs.scoreFlash > 0) gs.scoreFlash--;
-      }
-      // If we hit the catch-up cap (backgrounded tab, debugger pause),
-      // clamp the accumulator so alpha stays in [0, 1] and we don't
-      // overshoot the interpolation.
-      if (gs._physicsAccum > FIXED_DT) gs._physicsAccum = FIXED_DT;
+      if (gs.shake > 0) gs.shake = Math.max(0, gs.shake - dt);
+      if (gs.flash > 0) gs.flash = Math.max(0, gs.flash - dt);
+      if (gs.transitionCard > 0) gs.transitionCard = Math.max(0, gs.transitionCard - dt);
+      if (gs.scoreFlash > 0) gs.scoreFlash = Math.max(0, gs.scoreFlash - dt);
 
-      // Draw locals — recomputed from the post-update game state.
+      // Draw locals. w/h/planet/phys/s are already in scope from the update
+      // body above (same try-block now that the fixed-step while-loop is gone).
       const ctx = canvas.getContext('2d');
-      const w = gs.w, h = gs.h;
-      const planet = PLANETS[gs.planetIdx];
-      const phys = gs.phys;
-      const s = phys.scale;
       const _drawLevelBonus = (LEVEL_SPEED_BONUS[gs.planetIdx] || 0) * phys.widthScale;
       const _drawScoreBonus = gs.score * phys.speedPerObstacle;
       const speedMul = (phys.baseSpeed + _drawLevelBonus + _drawScoreBonus) / phys.baseSpeed;
 
-      // Frame interpolation. Temporarily replace ship / column / fragment
-      // positions with lerp(prev, current, alpha) values for the draw pass,
-      // then restore the true positions just before the catch block so the
-      // next physics step sees the correct state. alpha = 0 right after a
-      // step ran, approaches 1 as the accumulator fills toward the next.
-      const _alpha = Math.min(1, gs._physicsAccum / FIXED_DT);
-      const _shipOrigX = gs.ship.x;
-      const _shipOrigY = gs.ship.y;
-      const _shipOrigTilt = gs.ship.tilt;
-      if (gs.ship._prevX != null) {
-        gs.ship.x = gs.ship._prevX + (_shipOrigX - gs.ship._prevX) * _alpha;
-        gs.ship.y = gs.ship._prevY + (_shipOrigY - gs.ship._prevY) * _alpha;
-        gs.ship.tilt = gs.ship._prevTilt + (_shipOrigTilt - gs.ship._prevTilt) * _alpha;
-      }
-      const _colOrigX = gs.columns.map((c) => c.x);
-      for (let _ci = 0; _ci < gs.columns.length; _ci++) {
-        const _c = gs.columns[_ci];
-        if (_c._prevX != null) {
-          _c.x = _c._prevX + (_colOrigX[_ci] - _c._prevX) * _alpha;
-        }
-      }
-      const _fragOrigX = gs.fragments.map((f) => f.x);
-      const _fragOrigY = gs.fragments.map((f) => f.y);
-      for (let _fi = 0; _fi < gs.fragments.length; _fi++) {
-        const _f = gs.fragments[_fi];
-        if (_f._prevX != null) {
-          _f.x = _f._prevX + (_fragOrigX[_fi] - _f._prevX) * _alpha;
-          _f.y = _f._prevY + (_fragOrigY[_fi] - _f._prevY) * _alpha;
-        }
-      }
+      // Physics already advanced to its true state for this frame, so the
+      // scene is drawn directly — delta-time integration has no sub-step to
+      // interpolate, which is exactly what removes the catch-up snap.
 
       // ── DRAW to offscreen for bloom pass ──
       const offCtx = off.getContext('2d');
@@ -3393,13 +3351,20 @@ export default function StellarDrift() {
       // sized w*dpr x h*dpr in intrinsic pixels, and the main ctx already
       // has a dpr transform applied — omitting the size double-scales by dpr.
       ctx.drawImage(off, 0, 0, w, h);
-      // Bloom: blurred copy at low opacity
+      // Bloom: reuse the downsampled, pre-blurred scene (bs, refreshed just
+      // above) upscaled to full size with 'lighter'. The 4x downscale + bilinear
+      // upscale is the blur, so we avoid a full-resolution ctx.filter blur()
+      // every frame — the single most expensive op on throttled mobile GPUs.
       ctx.save();
       ctx.globalAlpha = 0.40;
       ctx.globalCompositeOperation = 'lighter';
-      ctx.filter = `blur(${8 * s}px)`;
-      ctx.drawImage(off, 0, 0, w, h);
-      ctx.filter = 'none';
+      if (bs && bs.width > 0) {
+        ctx.drawImage(bs, 0, 0, w, h);
+      } else {
+        ctx.filter = `blur(${8 * s}px)`;
+        ctx.drawImage(off, 0, 0, w, h);
+        ctx.filter = 'none';
+      }
       ctx.globalCompositeOperation = 'source-over';
       ctx.restore();
 
@@ -3439,18 +3404,6 @@ export default function StellarDrift() {
         drawDeathScreen(ctx, gs, w, h, gs.time, off);
       }
 
-      // Restore the real physics positions (we mutated them above for the
-      // interpolated draw). The next physics step needs the true state.
-      gs.ship.x = _shipOrigX;
-      gs.ship.y = _shipOrigY;
-      gs.ship.tilt = _shipOrigTilt;
-      for (let _ci = 0; _ci < gs.columns.length; _ci++) {
-        gs.columns[_ci].x = _colOrigX[_ci];
-      }
-      for (let _fi = 0; _fi < gs.fragments.length; _fi++) {
-        gs.fragments[_fi].x = _fragOrigX[_fi];
-        gs.fragments[_fi].y = _fragOrigY[_fi];
-      }
     } catch (err) {
       console.error('[STELLAR DRIFT] loop error', err);
     }
@@ -3775,7 +3728,12 @@ export default function StellarDrift() {
         ref={containerRef}
         style={{
           position: 'relative',
-          width: '100%',
+          // Cap the play area to the game's portrait aspect (BASE_W:BASE_H =
+          // 400:800 = 1:2). On a phone this is the full screen; on a wide
+          // laptop window it letterboxes to a centered portrait column so the
+          // horizontal-motion scale (widthScale = w/400) stays ≈ 1 and the
+          // game doesn't run absurdly fast. 50dvh = half the viewport height.
+          width: 'min(100vw, 50dvh)',
           height: '100%',
           maxWidth: '100vw',
           maxHeight: '100vh',
