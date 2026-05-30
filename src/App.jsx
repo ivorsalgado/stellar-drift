@@ -123,6 +123,10 @@ const FROSTED_TINT_DARK = 'rgba(40, 25, 15, 0.35)';
 const FROSTED_SCENE_DOWNSCALE = 4;
 const FROSTED_SCENE_BLUR_PX = 5;
 
+// Append ?fps to the URL to show a tiny on-canvas perf meter (fps, worst frame
+// interval, JS draw time). Off for normal users — read once at module load.
+const SHOW_FPS = typeof location !== 'undefined' && /[?&]fps\b/.test(location.search);
+
 // ── Configurable constants ─────────────────────────────────────────
 // Set this to your deployed game URL. Used in the share-score snippet.
 const VERCEL_URL = 'https://stellar-drift.vercel.app';
@@ -3249,9 +3253,8 @@ export default function StellarDrift() {
         if (p.life <= 0) gs.popups.splice(i, 1);
       }
 
-      // Shake / flash / transition-card / score-flash decay (all tick once
-      // per logical 60 Hz step, not per RAF — so they last the same
-      // wall-clock duration on every device).
+      // Shake / flash / transition-card / score-flash decay — scaled by dt so
+      // they last the same wall-clock duration on every device.
       if (gs.shake > 0) gs.shake = Math.max(0, gs.shake - dt);
       if (gs.flash > 0) gs.flash = Math.max(0, gs.flash - dt);
       if (gs.transitionCard > 0) gs.transitionCard = Math.max(0, gs.transitionCard - dt);
@@ -3260,6 +3263,9 @@ export default function StellarDrift() {
       // Draw locals. w/h/planet/phys/s are already in scope from the update
       // body above (same try-block now that the fixed-step while-loop is gone).
       const ctx = canvas.getContext('2d');
+      // Diagnostic: time the JS draw work when ?fps is in the URL (see overlay
+      // at the end of the frame). performance.now() is only called in that mode.
+      const _drawStart = SHOW_FPS ? performance.now() : 0;
       const _drawLevelBonus = (LEVEL_SPEED_BONUS[gs.planetIdx] || 0) * phys.widthScale;
       const _drawScoreBonus = gs.score * phys.speedPerObstacle;
       const speedMul = (phys.baseSpeed + _drawLevelBonus + _drawScoreBonus) / phys.baseSpeed;
@@ -3402,6 +3408,32 @@ export default function StellarDrift() {
         drawStartScreen(ctx, gs, w, h);
       } else if (gs.state === 'dead') {
         drawDeathScreen(ctx, gs, w, h, gs.time, off);
+      }
+
+      // Perf meter (?fps). frameDelta = real interval between RAFs (capped at
+      // 250) — its "max" catches tap-induced spikes. draw = JS main-thread work
+      // this frame. If draw is small but frameDelta is large, the cost is in
+      // GPU/compositor/throttling, not our JS.
+      if (SHOW_FPS) {
+        const st = gs._fps || (gs._fps = { n: 0, dSum: 0, dMax: 0, wSum: 0, wMax: 0, last: now, text: 'measuring…' });
+        const drawMs = performance.now() - _drawStart;
+        st.n++; st.dSum += frameDelta; st.wSum += drawMs;
+        if (frameDelta > st.dMax) st.dMax = frameDelta;
+        if (drawMs > st.wMax) st.wMax = drawMs;
+        if (now - st.last > 500 && st.n > 0) {
+          const avgD = st.dSum / st.n;
+          st.text = `${(1000 / avgD).toFixed(0)}fps  frame avg${avgD.toFixed(1)}/max${st.dMax.toFixed(0)}ms  draw avg${(st.wSum / st.n).toFixed(1)}/max${st.wMax.toFixed(1)}ms`;
+          st.n = 0; st.dSum = 0; st.dMax = 0; st.wSum = 0; st.wMax = 0; st.last = now;
+        }
+        ctx.save();
+        ctx.font = '11px monospace';
+        ctx.textBaseline = 'middle';
+        const tw = ctx.measureText(st.text).width + 12;
+        ctx.fillStyle = 'rgba(0,0,0,0.65)';
+        ctx.fillRect(4, 4, tw, 18);
+        ctx.fillStyle = '#3effa0';
+        ctx.fillText(st.text, 10, 14);
+        ctx.restore();
       }
 
     } catch (err) {
