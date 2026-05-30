@@ -3000,14 +3000,19 @@ export default function StellarDrift() {
         if (gs.onPlanetChange) gs.onPlanetChange(gs.planetIdx);
       }
 
-      // Snap update count to an integer based on real elapsed time. A
-      // strict accumulator drifts against RAF's natural jitter and produces
-      // visible stutter at 60 Hz (occasional 0-update or 2-update frames
-      // that make obstacles judder and gravity feel snappy). Snapping to
-      // integer step counts preserves the original 60 Hz feel exactly:
-      //   • normal 60 Hz     → 1 step per RAF
-      //   • Low Power 30 Hz  → 2 steps per RAF
-      //   • 120 Hz ProMotion → 1 step every other RAF
+      // Pick the number of physics sub-steps from the SMOOTHED RAF rate,
+      // not the instantaneous one. A single jittery frame (a tap that
+      // costs ~25 ms of paint, a GC pause, etc.) used to flip the count
+      // from 1 to 2 and produce a visible "catch-up snap" on obstacles.
+      // The running average has a ~10-frame time constant — slow enough
+      // to ignore one-off hitches, fast enough to catch a Low Power Mode
+      // toggle within ~150 ms.
+      //
+      // Steady-state behavior:
+      //   • normal 60 Hz       → 1 step per RAF (identical to original feel)
+      //   • Low Power ~30 Hz   → 2 steps per RAF (correct speed at 30 fps render)
+      //   • 120-240 Hz display → fractional accumulator, ~60 logical Hz
+      //
       // The update body below stays at its original 8-space indent —
       // visually under-indented inside this for-loop — so the diff stays
       // focused on the structural change.
@@ -3016,21 +3021,36 @@ export default function StellarDrift() {
       let frameDelta = now - gs._lastFrameTime;
       gs._lastFrameTime = now;
       if (frameDelta > 250) frameDelta = 250;
-      const _dtRatio = frameDelta / FIXED_DT;
+      // Seed the average to 60 Hz so the first ~10 frames don't get
+      // classified as "high refresh" while the EMA is still converging.
+      gs._dtAvg = gs._dtAvg == null ? FIXED_DT : gs._dtAvg * 0.9 + frameDelta * 0.1;
+      const _avgRatio = gs._dtAvg / FIXED_DT;
       let _stepsThisFrame;
-      if (_dtRatio < 0.75) {
-        // Faster than 60 Hz (e.g. 120 Hz ProMotion). Step every other RAF.
-        gs._skipPhase = !gs._skipPhase;
-        _stepsThisFrame = gs._skipPhase ? 1 : 0;
-      } else if (_dtRatio < 1.5) {
-        gs._skipPhase = false;
+      if (_avgRatio < 0.75) {
+        // Display refresh consistently faster than 60 Hz (120 / 144 / 240 Hz
+        // laptops and ProMotion iPhones). Fractional accumulator so the
+        // logical rate stays ~60 Hz; jitter from the accumulator is invisible
+        // here because each RAF interval is only 4-8 ms.
+        gs._skipAccum = (gs._skipAccum || 0) + frameDelta / FIXED_DT;
+        if (gs._skipAccum >= 1) {
+          gs._skipAccum -= 1;
+          _stepsThisFrame = 1;
+        } else {
+          _stepsThisFrame = 0;
+        }
+      } else if (_avgRatio < 1.5) {
+        // Normal 60 Hz. Always exactly one step — a one-off jittery frame
+        // does NOT trigger a 2-step snap, because the EMA absorbs it.
+        gs._skipAccum = 0;
         _stepsThisFrame = 1;
-      } else if (_dtRatio < 2.5) {
-        gs._skipPhase = false;
+      } else if (_avgRatio < 2.5) {
+        // Sustained ~30 Hz (iOS Low Power Mode).
+        gs._skipAccum = 0;
         _stepsThisFrame = 2;
       } else {
-        gs._skipPhase = false;
-        _stepsThisFrame = Math.min(4, Math.round(_dtRatio));
+        // Slower than 30 Hz — catch up, capped at 4.
+        gs._skipAccum = 0;
+        _stepsThisFrame = Math.min(4, Math.round(_avgRatio));
       }
       for (let _i = 0; _i < _stepsThisFrame; _i++) {
       const w = gs.w, h = gs.h;
