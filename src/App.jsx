@@ -120,21 +120,8 @@ const FROSTED_TINT_DARK = 'rgba(40, 25, 15, 0.35)';
 // region of it. The downsample + bilinear upscale do most of the blurring
 // for free, so the explicit blur radius can stay tiny — way cheaper than
 // running ctx.filter blur(20px) at full resolution per card per frame.
-// Downscale factor for the shared frosted-glass / bloom scene copy. A heavier
-// downscale (then bilinear upscale) provides the blur for free — no per-frame
-// ctx.filter blur() needed, which is the iOS-Safari stall we're avoiding.
-const FROSTED_SCENE_DOWNSCALE = 8;
-
-// Append ?fps to the URL to show a tiny on-canvas perf meter (fps, worst frame
-// interval, JS draw time). Off for normal users — read once at module load.
-const SHOW_FPS = typeof location !== 'undefined' && /[?&]fps\b/.test(location.search);
-// Append ?noaudio to fully disable the audio engine — a diagnostic A/B switch
-// to test whether Web Audio node/buffer churn is causing intermittent frame
-// drops (suspected when JS draw time is tiny but frames still stutter).
-const DISABLE_AUDIO = typeof location !== 'undefined' && /[?&]noaudio\b/.test(location.search);
-// Append ?lowres to cap the canvas at 1x device-pixel-ratio — a diagnostic A/B
-// switch to test whether the GPU/compositor is the source of dropped frames.
-const LOW_RES = typeof location !== 'undefined' && /[?&]lowres\b/.test(location.search);
+const FROSTED_SCENE_DOWNSCALE = 4;
+const FROSTED_SCENE_BLUR_PX = 5;
 
 // ── Configurable constants ─────────────────────────────────────────
 // Set this to your deployed game URL. Used in the share-score snippet.
@@ -373,7 +360,6 @@ export default function StellarDrift() {
   // AUDIO ENGINE
   // ─────────────────────────────────────────────────────────────
   const initAudio = useCallback(() => {
-    if (DISABLE_AUDIO) return null;
     if (audioRef.current) return audioRef.current;
     try {
       const AC = window.AudioContext || window.webkitAudioContext;
@@ -2533,9 +2519,7 @@ export default function StellarDrift() {
     ctx.fillText(`BEST ${best}`, w / 2, sy + sh + 6 * s);
     ctx.restore();
 
-    // Score flash (accent ring around the pill). Decay is handled in the
-    // fixed-timestep update loop, so the flash lasts the same wall-clock
-    // duration regardless of RAF rate.
+    // Score flash (accent ring around the pill)
     if (gs.scoreFlash > 0) {
       ctx.save();
       ctx.globalAlpha = gs.scoreFlash / 10;
@@ -2544,6 +2528,7 @@ export default function StellarDrift() {
       roundRect(ctx, sx - 2 * s, sy - 2 * s, sw + 4 * s, sh + 4 * s, 24 * s);
       ctx.stroke();
       ctx.restore();
+      gs.scoreFlash--;
     }
 
     // Combo bar (moved down to clear the BEST label)
@@ -2992,7 +2977,7 @@ export default function StellarDrift() {
   // ─────────────────────────────────────────────────────────────
   // GAME LOOP
   // ─────────────────────────────────────────────────────────────
-  const step = useCallback((now) => {
+  const step = useCallback(() => {
     const canvas = canvasRef.current;
     const off = offscreenRef.current;
     const gs = gsRef.current;
@@ -3002,6 +2987,9 @@ export default function StellarDrift() {
     }
 
     try {
+      const ctx = canvas.getContext('2d');
+      const w = gs.w, h = gs.h;
+      gs.time++;
       // Mirror gs.state into React so menu DOM can react to play/dead transitions.
       if (gs.state !== gs._lastViewSeen) {
         gs._lastViewSeen = gs.state;
@@ -3014,79 +3002,53 @@ export default function StellarDrift() {
         if (gs.onPlanetChange) gs.onPlanetChange(gs.planetIdx);
       }
 
-      // Frame-rate-independent update. Physics integrates ONCE per RAF, scaling
-      // every per-frame quantity by `dt` (the number of 60 Hz steps this frame
-      // represents). The resulting true state is drawn directly — no fixed-step
-      // accumulator, no interpolation. A late frame simply advances proportionally
-      // and is shown immediately, so there's no catch-up snap and no added latency:
-      //   • 60 Hz steady     → dt ≈ 1
-      //   • 30 Hz Low Power  → dt ≈ 2 (everything moves twice as far per frame)
-      //   • 120-240 Hz       → dt ≈ 0.5-0.25 (smaller, smoother steps)
-      //   • Tap/GC hitch      → one larger-but-correct step, drawn live
-      const FIXED_DT = 1000 / 60;
-      const MAX_DT = 3;
-      if (gs._lastFrameTime == null) gs._lastFrameTime = now - FIXED_DT;
-      let frameDelta = now - gs._lastFrameTime;
-      gs._lastFrameTime = now;
-      if (frameDelta > 250) frameDelta = 250;
-      // dt = how many 60 Hz steps this RAF represents (1.0 @ 60fps, ~2.0 @ 30fps
-      // Low Power, ~0.5 @ 120fps). Clamped so a long stall can't tunnel the ship
-      // through a column on resume.
-      let dt = frameDelta / FIXED_DT;
-      if (dt > MAX_DT) dt = MAX_DT;
-      if (dt < 0) dt = 0;
-      const w = gs.w, h = gs.h;
-      gs.time += dt;
-      // Resolve current planet & speed (recomputed per logical step so a
-      // mid-update planet transition picks up the new palette immediately).
+      // Resolve current planet & speed at top so HUD always has it
       const planet = PLANETS[gs.planetIdx];
       const phys = gs.phys;
       const s = phys.scale;
       // Speed = baseSpeed + per-level bonus + (score × speedPerObstacle).
+      // Each obstacle adds 1 to score; level bonus jumps as the player crosses
+      // into each new planet. speedMul is the ratio for the HUD "×".
       const levelBonus = (LEVEL_SPEED_BONUS[gs.planetIdx] || 0) * phys.widthScale;
       const scoreBonus = gs.score * phys.speedPerObstacle;
       const moveSpeed = phys.baseSpeed + levelBonus + scoreBonus;
+      const speedMul = moveSpeed / phys.baseSpeed;
 
       // Apply planet transition crossfade
       if (gs.planetTransition < 1) {
-        gs.planetTransition = Math.min(1, gs.planetTransition + dt / 90);
+        gs.planetTransition = Math.min(1, gs.planetTransition + 1 / 90);
       }
 
       // ── UPDATE ──
       if (gs.state === 'playing') {
         // Spawn
-        gs.framesSinceSpawn += dt;
+        gs.framesSinceSpawn++;
         if (gs.framesSinceSpawn >= gs.spawnInterval) {
           spawnColumn(gs);
         }
-        // Ship physics — momentum-based, floaty. vy/vx carry "displacement per
-        // 60 Hz step"; positions integrate by * dt, accelerations add by * dt,
-        // and exponential damping uses pow(base, dt) so feel is identical at
-        // any frame rate.
-        gs.ship.vy += phys.gravity * dt;
+        // Ship physics — momentum-based, floaty
+        gs.ship.vy += phys.gravity;
         if (gs.ship.vy < phys.maxRiseSpeed) gs.ship.vy = phys.maxRiseSpeed;
         if (gs.ship.vy > phys.maxFallSpeed) gs.ship.vy = phys.maxFallSpeed;
-        gs.ship.y += gs.ship.vy * dt;
+        gs.ship.y += gs.ship.vy;
         // Smoothed tilt — based on unscaled vy ratio so feel is consistent across viewports
         const targetTilt = Math.max(-0.5, Math.min(0.9, (gs.ship.vy / s) * 0.06));
-        gs.ship.tilt += (targetTilt - gs.ship.tilt) * (1 - Math.pow(1 - phys.tiltSmoothing, dt));
+        gs.ship.tilt += (targetTilt - gs.ship.tilt) * phys.tiltSmoothing;
         // Lateral drift influenced by tilt + ambient sway + gentle recenter
         const restX = gs.w * phys.shipX;
-        gs.ship.vx += gs.ship.tilt * phys.lateralTiltInfluence * dt;
-        gs.ship.vx += Math.sin(gs.time * 0.04) * 0.015 * phys.lateralAmbientSway * dt;
-        gs.ship.vx += (restX - gs.ship.x) * phys.lateralRecenter * dt;
-        gs.ship.vx *= Math.pow(phys.lateralDamping, dt);
-        gs.ship.x += gs.ship.vx * dt;
-        // Trail — emit at a steady ~30 Hz (every 2 logical steps) regardless of fps
-        gs._trailAccum = (gs._trailAccum || 0) + dt;
-        if (gs._trailAccum >= 2) {
-          gs._trailAccum -= 2;
+        gs.ship.vx += gs.ship.tilt * phys.lateralTiltInfluence;
+        gs.ship.vx += Math.sin(gs.time * 0.04) * 0.015 * phys.lateralAmbientSway;
+        gs.ship.vx += (restX - gs.ship.x) * phys.lateralRecenter;
+        gs.ship.vx *= phys.lateralDamping;
+        gs.ship.x += gs.ship.vx;
+        // Trail
+        if (gs.time % 2 === 0) {
           gs.ship.trail.push({ x: gs.ship.x - 12 * s, y: gs.ship.y });
           if (gs.ship.trail.length > 12) gs.ship.trail.shift();
         }
         for (let i = gs.columns.length - 1; i >= 0; i--) {
           const c = gs.columns[i];
-          c.x -= moveSpeed * dt;
+          c.x -= moveSpeed;
           // Score?
           if (!c.scored && c.x + phys.columnWidth < gs.ship.x - phys.shipRadius * 0.6) {
             c.scored = true;
@@ -3173,9 +3135,9 @@ export default function StellarDrift() {
         // Star Fragments — move with world, animate, collect on overlap
         for (let i = gs.fragments.length - 1; i >= 0; i--) {
           const f = gs.fragments[i];
-          f.x -= moveSpeed * dt;
-          f.rot += 0.045 * dt;
-          f.bounce += 0.08 * dt;
+          f.x -= moveSpeed;
+          f.rot += 0.045;
+          f.bounce += 0.08;
           if (!f.collected) {
             const dx = f.x - gs.ship.x;
             const dy = f.y - gs.ship.y;
@@ -3211,78 +3173,59 @@ export default function StellarDrift() {
         }
         // Combo timer
         if (gs.comboTimer > 0) {
-          gs.comboTimer -= dt;
-          if (gs.comboTimer <= 0) { gs.comboTimer = 0; gs.combo = 0; }
+          gs.comboTimer--;
+          if (gs.comboTimer === 0) gs.combo = 0;
         }
       } else if (gs.state === 'start') {
-        // Idle ship bob — position is derived from idleT (a phase), so only
-        // the phase advances by dt; y/vy/tilt are read straight off it.
-        gs.ship.idleT += 0.04 * dt;
+        // Idle ship bob
+        gs.ship.idleT += 0.04;
         gs.ship.y = h * 0.5 + Math.sin(gs.ship.idleT) * 14 * s;
         gs.ship.vy = Math.cos(gs.ship.idleT) * 14 * 0.04 * s;
         gs.ship.vx = 0;
         gs.ship.tilt = Math.cos(gs.ship.idleT) * 0.12;
         gs.ship.x = w * phys.shipX;
-        gs._trailAccum = (gs._trailAccum || 0) + dt;
-        if (gs._trailAccum >= 4) {
-          gs._trailAccum -= 4;
+        if (gs.time % 4 === 0) {
           gs.ship.trail.push({ x: gs.ship.x - 12 * s, y: gs.ship.y });
           if (gs.ship.trail.length > 10) gs.ship.trail.shift();
         }
       } else if (gs.state === 'dead') {
-        gs.deathOverlay = Math.min(20, gs.deathOverlay + dt);
+        gs.deathOverlay = Math.min(20, gs.deathOverlay + 1);
         // Ship falls
-        gs.ship.vy += phys.gravity * 0.6 * dt;
-        gs.ship.y += gs.ship.vy * dt;
-        gs.ship.x += gs.ship.vx * dt;
-        gs.ship.vx *= Math.pow(0.95, dt);
-        gs.ship.tilt = Math.min(1.2, gs.ship.tilt + 0.02 * dt);
+        gs.ship.vy += phys.gravity * 0.6;
+        gs.ship.y += gs.ship.vy;
+        gs.ship.x += gs.ship.vx;
+        gs.ship.vx *= 0.95;
+        gs.ship.tilt = Math.min(1.2, gs.ship.tilt + 0.02);
       }
 
       // Particles update
       for (let i = gs.particles.length - 1; i >= 0; i--) {
         const p = gs.particles[i];
-        p.x += p.vx * dt; p.y += p.vy * dt;
-        p.vy += 0.08 * s * dt;
-        p.vx *= Math.pow(0.98, dt);
-        p.life -= dt;
+        p.x += p.vx; p.y += p.vy;
+        p.vy += 0.08 * s;
+        p.vx *= 0.98;
+        p.life--;
         if (p.life <= 0) gs.particles.splice(i, 1);
       }
       // Rings update
       for (let i = gs.rings.length - 1; i >= 0; i--) {
         const r = gs.rings[i];
-        r.radius += 2.5 * (r.scale || s) * dt;
-        r.life -= dt;
+        r.radius += 2.5 * (r.scale || s);
+        r.life--;
         if (r.life <= 0) gs.rings.splice(i, 1);
       }
       // Popups update
       for (let i = gs.popups.length - 1; i >= 0; i--) {
         const p = gs.popups[i];
-        p.y += (p.vy || -1 * s) * dt;
-        p.life -= dt;
+        p.y += p.vy || -1 * s;
+        p.life--;
         if (p.life <= 0) gs.popups.splice(i, 1);
       }
 
-      // Shake / flash / transition-card / score-flash decay — scaled by dt so
-      // they last the same wall-clock duration on every device.
-      if (gs.shake > 0) gs.shake = Math.max(0, gs.shake - dt);
-      if (gs.flash > 0) gs.flash = Math.max(0, gs.flash - dt);
-      if (gs.transitionCard > 0) gs.transitionCard = Math.max(0, gs.transitionCard - dt);
-      if (gs.scoreFlash > 0) gs.scoreFlash = Math.max(0, gs.scoreFlash - dt);
-
-      // Draw locals. w/h/planet/phys/s are already in scope from the update
-      // body above (same try-block now that the fixed-step while-loop is gone).
-      const ctx = canvas.getContext('2d');
-      // Diagnostic: time the JS draw work when ?fps is in the URL (see overlay
-      // at the end of the frame). performance.now() is only called in that mode.
-      const _drawStart = SHOW_FPS ? performance.now() : 0;
-      const _drawLevelBonus = (LEVEL_SPEED_BONUS[gs.planetIdx] || 0) * phys.widthScale;
-      const _drawScoreBonus = gs.score * phys.speedPerObstacle;
-      const speedMul = (phys.baseSpeed + _drawLevelBonus + _drawScoreBonus) / phys.baseSpeed;
-
-      // Physics already advanced to its true state for this frame, so the
-      // scene is drawn directly — delta-time integration has no sub-step to
-      // interpolate, which is exactly what removes the catch-up snap.
+      // Shake decay
+      if (gs.shake > 0) gs.shake--;
+      if (gs.flash > 0) gs.flash--;
+      if (gs.transitionCard > 0) gs.transitionCard--;
 
       // ── DRAW to offscreen for bloom pass ──
       const offCtx = off.getContext('2d');
@@ -3348,19 +3291,17 @@ export default function StellarDrift() {
 
       offCtx.restore();
 
-      // Refresh the shared downsampled scene used by all frosted-glass cards
-      // (and the bloom) this frame. The aggressive downscale + bilinear upscale
-      // IS the blur — so we deliberately avoid ctx.filter = blur(), which on
-      // iOS Safari causes a fixed-cost pipeline stall every frame (intermittent
-      // dropped frames even when JS draw time is ~0.6ms). Pure drawImage scaling
-      // is GPU-cheap and stall-free.
+      // Refresh the shared downsampled-blur of the scene used by all
+      // frosted-glass cards this frame. One small blur per frame instead
+      // of three large ones per card.
       const bs = blurredSceneRef.current;
       if (bs && bs.width > 0) {
         const bsCtx = bs.getContext('2d');
         bsCtx.setTransform(1, 0, 0, 1, 0, 0);
         bsCtx.clearRect(0, 0, bs.width, bs.height);
-        bsCtx.imageSmoothingEnabled = true;
+        bsCtx.filter = `blur(${FROSTED_SCENE_BLUR_PX}px)`;
         bsCtx.drawImage(off, 0, 0, bs.width, bs.height);
+        bsCtx.filter = 'none';
       }
 
       // ── COMPOSITE TO MAIN CANVAS WITH BLOOM ──
@@ -3369,20 +3310,13 @@ export default function StellarDrift() {
       // sized w*dpr x h*dpr in intrinsic pixels, and the main ctx already
       // has a dpr transform applied — omitting the size double-scales by dpr.
       ctx.drawImage(off, 0, 0, w, h);
-      // Bloom: reuse the downsampled, pre-blurred scene (bs, refreshed just
-      // above) upscaled to full size with 'lighter'. The 4x downscale + bilinear
-      // upscale is the blur, so we avoid a full-resolution ctx.filter blur()
-      // every frame — the single most expensive op on throttled mobile GPUs.
+      // Bloom: blurred copy at low opacity
       ctx.save();
       ctx.globalAlpha = 0.40;
       ctx.globalCompositeOperation = 'lighter';
-      if (bs && bs.width > 0) {
-        ctx.drawImage(bs, 0, 0, w, h);
-      } else {
-        ctx.filter = `blur(${8 * s}px)`;
-        ctx.drawImage(off, 0, 0, w, h);
-        ctx.filter = 'none';
-      }
+      ctx.filter = `blur(${8 * s}px)`;
+      ctx.drawImage(off, 0, 0, w, h);
+      ctx.filter = 'none';
       ctx.globalCompositeOperation = 'source-over';
       ctx.restore();
 
@@ -3421,33 +3355,6 @@ export default function StellarDrift() {
       } else if (gs.state === 'dead') {
         drawDeathScreen(ctx, gs, w, h, gs.time, off);
       }
-
-      // Perf meter (?fps). frameDelta = real interval between RAFs (capped at
-      // 250) — its "max" catches tap-induced spikes. draw = JS main-thread work
-      // this frame. If draw is small but frameDelta is large, the cost is in
-      // GPU/compositor/throttling, not our JS.
-      if (SHOW_FPS) {
-        const st = gs._fps || (gs._fps = { n: 0, dSum: 0, dMax: 0, wSum: 0, wMax: 0, last: now, text: 'measuring…' });
-        const drawMs = performance.now() - _drawStart;
-        st.n++; st.dSum += frameDelta; st.wSum += drawMs;
-        if (frameDelta > st.dMax) st.dMax = frameDelta;
-        if (drawMs > st.wMax) st.wMax = drawMs;
-        if (now - st.last > 500 && st.n > 0) {
-          const avgD = st.dSum / st.n;
-          st.text = `${(1000 / avgD).toFixed(0)}fps  frame avg${avgD.toFixed(1)}/max${st.dMax.toFixed(0)}ms  draw avg${(st.wSum / st.n).toFixed(1)}/max${st.wMax.toFixed(1)}ms`;
-          st.n = 0; st.dSum = 0; st.dMax = 0; st.wSum = 0; st.wMax = 0; st.last = now;
-        }
-        ctx.save();
-        ctx.font = '11px monospace';
-        ctx.textBaseline = 'middle';
-        const tw = ctx.measureText(st.text).width + 12;
-        ctx.fillStyle = 'rgba(0,0,0,0.65)';
-        ctx.fillRect(4, 4, tw, 18);
-        ctx.fillStyle = '#3effa0';
-        ctx.fillText(st.text, 10, 14);
-        ctx.restore();
-      }
-
     } catch (err) {
       console.error('[STELLAR DRIFT] loop error', err);
     }
@@ -3473,9 +3380,7 @@ export default function StellarDrift() {
 
     const resize = () => {
       const rect = container.getBoundingClientRect();
-      // ?lowres caps render resolution at 1x (diagnostic A/B for GPU-bound
-      // frame drops); otherwise cap device pixel ratio at 2x.
-      const dpr = LOW_RES ? 1 : Math.min(window.devicePixelRatio || 1, 2);
+      const dpr = Math.min(window.devicePixelRatio || 1, 2);
       const w = rect.width, h = rect.height;
       canvas.width = w * dpr;
       canvas.height = h * dpr;
@@ -3774,12 +3679,7 @@ export default function StellarDrift() {
         ref={containerRef}
         style={{
           position: 'relative',
-          // Cap the play area to the game's portrait aspect (BASE_W:BASE_H =
-          // 400:800 = 1:2). On a phone this is the full screen; on a wide
-          // laptop window it letterboxes to a centered portrait column so the
-          // horizontal-motion scale (widthScale = w/400) stays ≈ 1 and the
-          // game doesn't run absurdly fast. 50dvh = half the viewport height.
-          width: 'min(100vw, 50dvh)',
+          width: '100%',
           height: '100%',
           maxWidth: '100vw',
           maxHeight: '100vh',
