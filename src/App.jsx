@@ -3391,10 +3391,14 @@ export default function StellarDrift() {
         ctx.font = '600 13px ui-monospace, Menlo, monospace';
         ctx.textAlign = 'left'; ctx.textBaseline = 'top';
         const lines = [`${st.fps} fps`, `frame max ${st.dmax}ms`, `js ${st.jms}ms`];
+        // Bottom-left: the top corners are covered by DOM HUD (fragment pill,
+        // trophy/settings buttons). Lifted to clear Safari's bottom bar.
+        const boxH = 16 * lines.length + 12;
+        const boxY = h - boxH - 90;
         ctx.fillStyle = 'rgba(0,0,0,0.62)';
-        ctx.fillRect(8, 8, 132, 16 * lines.length + 12);
+        ctx.fillRect(8, boxY, 132, boxH);
         ctx.fillStyle = '#00ff88';
-        lines.forEach((t, i) => ctx.fillText(t, 14, 14 + i * 16));
+        lines.forEach((t, i) => ctx.fillText(t, 14, boxY + 6 + i * 16));
         ctx.restore();
       }
     } catch (err) {
