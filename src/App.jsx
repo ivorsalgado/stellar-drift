@@ -123,6 +123,11 @@ const FROSTED_TINT_DARK = 'rgba(40, 25, 15, 0.35)';
 const FROSTED_SCENE_DOWNSCALE = 4;
 const FROSTED_SCENE_BLUR_PX = 5;
 
+// Append ?fps to the URL for a tiny on-canvas perf meter (fps, worst RAF
+// interval, JS main-thread time per frame). Gated — invisible to normal
+// players, read once at module load. Purely diagnostic; changes no game timing.
+const SHOW_FPS = typeof location !== 'undefined' && /[?&]fps\b/.test(location.search);
+
 // ── Configurable constants ─────────────────────────────────────────
 // Set this to your deployed game URL. Used in the share-score snippet.
 const VERCEL_URL = 'https://stellar-drift.vercel.app';
@@ -2977,7 +2982,7 @@ export default function StellarDrift() {
   // ─────────────────────────────────────────────────────────────
   // GAME LOOP
   // ─────────────────────────────────────────────────────────────
-  const step = useCallback(() => {
+  const step = useCallback((timestamp) => {
     const canvas = canvasRef.current;
     const off = offscreenRef.current;
     const gs = gsRef.current;
@@ -2989,6 +2994,10 @@ export default function StellarDrift() {
     try {
       const ctx = canvas.getContext('2d');
       const w = gs.w, h = gs.h;
+      // ?fps diagnostic: real RAF timestamp (interval between frames) and the
+      // start of this frame's JS work. Both no-ops unless the flag is on.
+      const _now = SHOW_FPS ? (timestamp ?? performance.now()) : 0;
+      const _jsStart = _now;
       gs.time++;
       // Mirror gs.state into React so menu DOM can react to play/dead transitions.
       if (gs.state !== gs._lastViewSeen) {
@@ -3354,6 +3363,39 @@ export default function StellarDrift() {
         drawStartScreen(ctx, gs, w, h);
       } else if (gs.state === 'dead') {
         drawDeathScreen(ctx, gs, w, h, gs.time, off);
+      }
+
+      // ── PERF METER (?fps) ── read-only diagnostic, gated behind the URL flag.
+      // frame = real interval between RAF callbacks (its max catches stalls);
+      // js = main-thread work this frame. If js is tiny but frame is large/erratic,
+      // the cost is iOS compositor/throttling, not our code.
+      if (SHOW_FPS) {
+        const st = gs._fps || (gs._fps = {
+          last: _now, shownAt: _now, n: 0, dSum: 0, dMax: 0, jSum: 0,
+          fps: 0, dmax: 0, jms: '0.0',
+        });
+        const interval = _now - st.last;
+        st.last = _now;
+        const jsMs = performance.now() - _jsStart;
+        if (interval > 0 && interval < 1000) {
+          st.n++; st.dSum += interval; st.jSum += jsMs;
+          if (interval > st.dMax) st.dMax = interval;
+        }
+        if (_now - st.shownAt >= 500 && st.n > 0) {
+          st.fps = Math.round(1000 / (st.dSum / st.n));
+          st.dmax = Math.round(st.dMax);
+          st.jms = (st.jSum / st.n).toFixed(1);
+          st.shownAt = _now; st.n = 0; st.dSum = 0; st.dMax = 0; st.jSum = 0;
+        }
+        ctx.save();
+        ctx.font = '600 13px ui-monospace, Menlo, monospace';
+        ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+        const lines = [`${st.fps} fps`, `frame max ${st.dmax}ms`, `js ${st.jms}ms`];
+        ctx.fillStyle = 'rgba(0,0,0,0.62)';
+        ctx.fillRect(8, 8, 132, 16 * lines.length + 12);
+        ctx.fillStyle = '#00ff88';
+        lines.forEach((t, i) => ctx.fillText(t, 14, 14 + i * 16));
+        ctx.restore();
       }
     } catch (err) {
       console.error('[STELLAR DRIFT] loop error', err);
