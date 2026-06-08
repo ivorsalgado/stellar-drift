@@ -139,9 +139,14 @@ const SHOW_FPS = typeof location !== 'undefined' && /[?&]fps\b/.test(location.se
 // fixed amount per *rendered frame*, assuming 60 fps). Conversion strategy:
 //   • CONTINUOUS LINEAR MOTION (ship vertical velocity/gravity/thrust, world
 //     scroll speed) is expressed in units PER SECOND and integrated by the
-//     fixed timestep: value_per_second = value_per_frame × 60 (= TICKS_PER_SECOND).
-//     These live in makePhysics(): gravity, impulse, maxRiseSpeed, maxFallSpeed,
-//     baseSpeed, speedPerObstacle. Integrated in simulateTick() as v*dtSec.
+//     fixed timestep in simulateTick() (v*dtSec). The per-frame → per-second
+//     factor depends on the time exponent: a VELOCITY (px/frame) scales ×60
+//     (= TICKS_PER_SECOND); an ACCELERATION (px/frame²) scales ×60² (=3600),
+//     because the time unit is squared. So in makePhysics(): impulse,
+//     maxRiseSpeed, maxFallSpeed, baseSpeed, speedPerObstacle use ×60, but
+//     gravity uses ×60². (NOTE: this corrects the spec's "×60 for everything"
+//     calibration hint — ×60 gravity is 60× too weak and sends the ship to the
+//     top of the screen on a single tap.)
 //   • DURATION / TICK COUNTERS (comboTimer 180, transitionCard 120, deathOverlay
 //     20, spawnInterval 95→55, framesSinceSpawn, shake/flash, planetTransition
 //     +1/90, the flap cooldown, particle/ring/popup life) are counted in SIM
@@ -294,10 +299,14 @@ const PHYSICS_BASE = {
 };
 
 const makePhysics = (scale, widthScale) => ({
-  // Vertical physics in PER-SECOND units (×TICKS_PER_SECOND), integrated by the
-  // fixed timestep in simulateTick(). At a 1/60 s tick these reproduce the
-  // original per-frame values exactly (e.g. gravity 0.38/frame → 22.8 px/s²).
-  gravity: PHYSICS_BASE.gravity * scale * TICKS_PER_SECOND,           // px/s²
+  // Vertical physics in PER-SECOND units, integrated by the fixed timestep in
+  // simulateTick(). Conversion factor depends on the dimension's time exponent:
+  //   • a VELOCITY (px/frame → px/s) scales by ×TICKS_PER_SECOND (×60)
+  //   • an ACCELERATION (px/frame² → px/s²) scales by ×TICKS_PER_SECOND² (×3600)
+  // because the unit of time appears squared. At a 1/60 s tick these reproduce
+  // the original per-frame values exactly (gravity 0.38/frame² → 1368 px/s²,
+  // impulse -8.2/frame → -492 px/s).
+  gravity: PHYSICS_BASE.gravity * scale * TICKS_PER_SECOND * TICKS_PER_SECOND, // px/s² (accel ⇒ ×60²)
   impulse: PHYSICS_BASE.impulse * scale * TICKS_PER_SECOND,           // px/s (tap sets vy)
   maxRiseSpeed: PHYSICS_BASE.maxRiseSpeed * scale * TICKS_PER_SECOND, // px/s
   maxFallSpeed: PHYSICS_BASE.maxFallSpeed * scale * TICKS_PER_SECOND, // px/s
