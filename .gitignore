@@ -22,3 +22,7 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Verification artifacts (keep drive scripts, ignore generated output)
+verify-output/*.png
+verify-output/log.txt
