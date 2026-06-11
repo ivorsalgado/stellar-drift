@@ -167,6 +167,19 @@ const FIXED_DT = 1000 / 60;                 // ms of simulated time per tick (16
 const TICKS_PER_SECOND = 1000 / FIXED_DT;   // 60 — the per-frame → per-second factor
 const MAX_FRAME_TIME = 250;                 // clamp accumulated time (spiral-of-death guard)
 
+// RENDER INTERPOLATION (Phase 0.5 Batch 2). At display rates below the 60 Hz
+// sim rate (iOS Low Power Mode = 30 fps) each rendered frame spans ~2 sim
+// ticks, so drawing raw post-tick positions looks steppy. simulateTick()
+// snapshots each continuous-motion value before advancing it (prevX/prevY),
+// and the render pass draws prev + (curr − prev) × alpha, where
+// alpha = accumulator ÷ FIXED_DT is how far the frame sits between ticks.
+// Only continuous positions are interpolated (ship y, column x, dust x/y,
+// fragment x) — booleans, counters, scores and event triggers are not.
+// `prev === undefined` covers entities that haven't ticked yet (fresh spawns,
+// post-reset) by falling back to the current value.
+const ilerp = (prev, curr, alpha) =>
+  prev === undefined ? curr : prev + (curr - prev) * alpha;
+
 // ── Configurable constants ─────────────────────────────────────────
 // Set this to your deployed game URL. Used in the share-score snippet.
 const VERCEL_URL = 'https://stellar-drift.vercel.app';
@@ -1706,12 +1719,12 @@ export default function StellarDrift() {
   // Pure draw: dust positions are advanced in simulateTick() (Phase 0.5) so the
   // drift no longer slows down at low display frame rates. (w/h/accent retained
   // for call-site compatibility.)
-  const drawDust = useCallback((ctx, dust, w, h, accent) => {
+  const drawDust = useCallback((ctx, dust, w, h, accent, alpha = 1) => {
     ctx.save();
     dust.forEach((d) => {
       ctx.fillStyle = `rgba(255, 240, 220, ${d.a})`;
       ctx.beginPath();
-      ctx.arc(d.x, d.y, d.r, 0, Math.PI * 2);
+      ctx.arc(ilerp(d.prevX, d.x, alpha), ilerp(d.prevY, d.y, alpha), d.r, 0, Math.PI * 2);
       ctx.fill();
     });
     ctx.restore();
@@ -1766,8 +1779,9 @@ export default function StellarDrift() {
     ctx.restore();
   }, []);
 
-  const drawColumnPair = useCallback((ctx, col, planet, h, columnWidth, s) => {
-    const { x, gapY, gap } = col;
+  const drawColumnPair = useCallback((ctx, col, planet, h, columnWidth, s, alpha = 1) => {
+    const { gapY, gap } = col;
+    const x = ilerp(col.prevX, col.x, alpha);
     const w = columnWidth;
     const topH = gapY - gap / 2;
     const botY = gapY + gap / 2;
@@ -1833,10 +1847,13 @@ export default function StellarDrift() {
     ctx.restore();
   }, [drawColumn]);
 
-  const drawShip = useCallback((ctx, ship, planet, t, s, design = 'blip', hatId = 'none') => {
+  const drawShip = useCallback((ctx, ship, planet, t, s, design = 'blip', hatId = 'none', alpha = 1) => {
     const alien = findAlien(design);
+    // Interpolated vertical position only — lateral spring is per-tick by
+    // design (see conversion audit) and is not interpolated.
+    const shipY = ilerp(ship.prevY, ship.y, alpha);
     ctx.save();
-    ctx.translate(ship.x, ship.y);
+    ctx.translate(ship.x, shipY);
     ctx.rotate(ship.tilt);
 
     // Trail — uses planet accent, same across all aliens
@@ -1847,7 +1864,7 @@ export default function StellarDrift() {
       ctx.fillStyle = `${planet.accent}${Math.floor(a * 255).toString(16).padStart(2, '0')}`;
       ctx.beginPath();
       const dx = p.x - ship.x;
-      const dy = p.y - ship.y;
+      const dy = p.y - shipY;
       const cos = Math.cos(-ship.tilt), sin = Math.sin(-ship.tilt);
       const tx = dx * cos - dy * sin;
       const ty = dx * sin + dy * cos;
@@ -2252,7 +2269,7 @@ export default function StellarDrift() {
     ctx.restore();
   }, []);
 
-  const drawFragments = useCallback((ctx, fragments, planet, s) => {
+  const drawFragments = useCallback((ctx, fragments, planet, s, alpha = 1) => {
     // Faceted gemstone with cyan halo and slow-rotating sparkle star.
     // Colors are fixed (not planet-tinted) so the crystal reads clearly on
     // every sky — planet accents already colorize column edges.
@@ -2266,7 +2283,9 @@ export default function StellarDrift() {
     fragments.forEach((f) => {
       if (f.collected) return;
       ctx.save();
-      ctx.translate(f.x, f.y + Math.sin(f.bounce) * 3 * s);
+      // x scrolls with the world (interpolated); the vertical sine bob is an
+      // animation phase (f.bounce), not integrated motion — left as-is.
+      ctx.translate(ilerp(f.prevX, f.x, alpha), f.y + Math.sin(f.bounce) * 3 * s);
 
       const pulse = 0.88 + Math.sin(f.bounce * 1.3) * 0.12;
 
@@ -2972,6 +2991,7 @@ export default function StellarDrift() {
     gs.state = 'playing';
     gs.ship.x = gs.w * gs.phys.shipX;
     gs.ship.y = gs.h * 0.5;
+    gs.ship.prevY = gs.ship.y; // teleport — keep interpolation from sweeping
     gs.ship.vx = 0;
     gs.ship.vy = 0;
     gs.ship.tilt = 0;
@@ -3008,6 +3028,7 @@ export default function StellarDrift() {
     gs.state = 'start';
     gs.ship.x = gs.w * gs.phys.shipX;
     gs.ship.y = gs.h * 0.5;
+    gs.ship.prevY = gs.ship.y; // teleport — keep interpolation from sweeping
     gs.ship.vx = 0;
     gs.ship.vy = 0;
     gs.ship.tilt = 0;
@@ -3042,6 +3063,22 @@ export default function StellarDrift() {
     const s = phys.scale;
     const dtSec = FIXED_DT / 1000; // seconds of simulated time this tick (1/60)
     gs.time++;
+
+    // Snapshot pre-tick positions for render interpolation (Batch 2).
+    // Unconditional (all states) so entities that don't move this tick — e.g.
+    // columns frozen after death — interpolate to themselves instead of
+    // jittering between a stale prev and the current value.
+    gs.ship.prevY = gs.ship.y;
+    for (let i = 0; i < gs.columns.length; i++) {
+      gs.columns[i].prevX = gs.columns[i].x;
+    }
+    for (let i = 0; i < gs.fragments.length; i++) {
+      gs.fragments[i].prevX = gs.fragments[i].x;
+    }
+    for (let i = 0; i < gs.dust.length; i++) {
+      gs.dust[i].prevX = gs.dust[i].x;
+      gs.dust[i].prevY = gs.dust[i].y;
+    }
 
     const planet = PLANETS[gs.planetIdx];
     // World scroll speed in px/s: base + per-level bonus + (score × per-obstacle).
@@ -3265,9 +3302,11 @@ export default function StellarDrift() {
       const d = gs.dust[i];
       d.x += d.vx;
       d.y += d.vy;
-      if (d.x < -10) d.x = w + 10;
-      if (d.y < 0) d.y = h;
-      if (d.y > h) d.y = 0;
+      // Edge wrap is a teleport, not motion — sync prev so the interpolated
+      // render doesn't sweep the particle across the whole screen.
+      if (d.x < -10) { d.x = w + 10; d.prevX = d.x; }
+      if (d.y < 0) { d.y = h; d.prevY = d.y; }
+      if (d.y > h) { d.y = 0; d.prevY = d.y; }
     }
 
     // Timers / screen-shake decay (tick countdowns)
@@ -3312,6 +3351,9 @@ export default function StellarDrift() {
         gs._accumulator -= FIXED_DT;
         ticksThisFrame++;
       }
+      // How far this frame sits between the last sim tick and the next (0..1).
+      // Drives render interpolation of continuous motion — see ilerp().
+      const alpha = gs._accumulator / FIXED_DT;
 
       // Mirror gs.state into React so menu DOM can react to play/dead transitions.
       if (gs.state !== gs._lastViewSeen) {
@@ -3361,17 +3403,17 @@ export default function StellarDrift() {
 
       // Atmospheric dust
       if (planet.name === 'MARS' || planet.name === 'JUPITER' || planet.name === 'URANUS') {
-        drawDust(offCtx, gs.dust, w, h, planet.accent);
+        drawDust(offCtx, gs.dust, w, h, planet.accent, alpha);
       }
 
       // Columns (only while playing or dead-falling)
       if (gs.state === 'playing' || gs.state === 'dead') {
-        gs.columns.forEach((c) => drawColumnPair(offCtx, c, planet, h, phys.columnWidth, s));
+        gs.columns.forEach((c) => drawColumnPair(offCtx, c, planet, h, phys.columnWidth, s, alpha));
       }
 
       // Star Fragments (between columns and ship)
       if (gs.state === 'playing' || gs.state === 'dead') {
-        drawFragments(offCtx, gs.fragments, planet, s);
+        drawFragments(offCtx, gs.fragments, planet, s, alpha);
       }
 
       // Rings (under ship)
@@ -3380,7 +3422,10 @@ export default function StellarDrift() {
       if (gs.state === 'start') {
         const haloPulse = 0.85 + Math.sin(gs.time * 0.04) * 0.15;
         const haloR = Math.min(w, h) * 0.32 * haloPulse;
-        const halo = offCtx.createRadialGradient(gs.ship.x, gs.ship.y, 0, gs.ship.x, gs.ship.y, haloR);
+        // Track the same interpolated y as drawShip so the halo doesn't lag
+        // the ship during the idle bob at low display rates.
+        const shipY = ilerp(gs.ship.prevY, gs.ship.y, alpha);
+        const halo = offCtx.createRadialGradient(gs.ship.x, shipY, 0, gs.ship.x, shipY, haloR);
         halo.addColorStop(0, `${planet.accent}38`);
         halo.addColorStop(0.5, `${planet.accent}14`);
         halo.addColorStop(1, `${planet.accent}00`);
@@ -3388,7 +3433,7 @@ export default function StellarDrift() {
         offCtx.fillRect(0, 0, w, h);
       }
       // Ship
-      drawShip(offCtx, gs.ship, planet, gs.time, s, gs.alienId, gs.hatId);
+      drawShip(offCtx, gs.ship, planet, gs.time, s, gs.alienId, gs.hatId, alpha);
       // Particles
       drawParticles(offCtx, gs.particles);
       // Popups
@@ -3572,6 +3617,7 @@ export default function StellarDrift() {
           // Scale ship Y proportionally during play
           gsRef.current.ship.y = (gsRef.current.ship.y / prevH) * h;
         }
+        gsRef.current.ship.prevY = gsRef.current.ship.y; // resize is a teleport
         // Rescale velocities and gameplay pixel quantities
         gsRef.current.ship.vy *= scaleRatio;
         gsRef.current.ship.vx = 0;
@@ -3580,12 +3626,14 @@ export default function StellarDrift() {
             c.gapY = (c.gapY / prevH) * h;
             c.gap *= scaleRatio;
             c.x *= widthRatio;
+            c.prevX = c.x; // resize is a teleport, not motion
           });
         }
         if (gsRef.current.fragments && gsRef.current.fragments.length) {
           gsRef.current.fragments.forEach((f) => {
             f.y = (f.y / prevH) * h;
             f.x *= widthRatio;
+            f.prevX = f.x; // resize is a teleport, not motion
           });
         }
         gsRef.current.gap *= scaleRatio;
