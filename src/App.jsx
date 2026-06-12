@@ -173,8 +173,10 @@ const MAX_FRAME_TIME = 250;                 // clamp accumulated time (spiral-of
 // snapshots each continuous-motion value before advancing it (prevX/prevY),
 // and the render pass draws prev + (curr − prev) × alpha, where
 // alpha = accumulator ÷ FIXED_DT is how far the frame sits between ticks.
-// Only continuous positions are interpolated (ship y, column x, dust x/y,
-// fragment x) — booleans, counters, scores and event triggers are not.
+// Interpolated: WORLD elements only — column x, dust x/y, fragment x.
+// NOT interpolated: the ship/alien (rendered at its live y — interpolation's
+// ~1-tick latency reads as input lag on the player-controlled element; see
+// Batch 2 fix), plus booleans, counters, scores and event triggers.
 // `prev === undefined` covers entities that haven't ticked yet (fresh spawns,
 // post-reset) by falling back to the current value.
 const ilerp = (prev, curr, alpha) =>
@@ -1847,13 +1849,15 @@ export default function StellarDrift() {
     ctx.restore();
   }, [drawColumn]);
 
-  const drawShip = useCallback((ctx, ship, planet, t, s, design = 'blip', hatId = 'none', alpha = 1) => {
+  const drawShip = useCallback((ctx, ship, planet, t, s, design = 'blip', hatId = 'none') => {
     const alien = findAlien(design);
-    // Interpolated vertical position only — lateral spring is per-tick by
-    // design (see conversion audit) and is not interpolated.
-    const shipY = ilerp(ship.prevY, ship.y, alpha);
+    // Rendered at the LIVE simulated y — NOT interpolated. The alien is the
+    // primary input-feedback element: players tap and immediately watch it to
+    // judge timing, so the ~1-tick (16–33 ms) lag that interpolation adds reads
+    // as broken input. Slight stepping at 30 fps is the accepted trade. World
+    // elements (columns/dust/fragments) are still interpolated for smoothness.
     ctx.save();
-    ctx.translate(ship.x, shipY);
+    ctx.translate(ship.x, ship.y);
     ctx.rotate(ship.tilt);
 
     // Trail — uses planet accent, same across all aliens
@@ -1864,7 +1868,7 @@ export default function StellarDrift() {
       ctx.fillStyle = `${planet.accent}${Math.floor(a * 255).toString(16).padStart(2, '0')}`;
       ctx.beginPath();
       const dx = p.x - ship.x;
-      const dy = p.y - shipY;
+      const dy = p.y - ship.y;
       const cos = Math.cos(-ship.tilt), sin = Math.sin(-ship.tilt);
       const tx = dx * cos - dy * sin;
       const ty = dx * sin + dy * cos;
@@ -2991,7 +2995,6 @@ export default function StellarDrift() {
     gs.state = 'playing';
     gs.ship.x = gs.w * gs.phys.shipX;
     gs.ship.y = gs.h * 0.5;
-    gs.ship.prevY = gs.ship.y; // teleport — keep interpolation from sweeping
     gs.ship.vx = 0;
     gs.ship.vy = 0;
     gs.ship.tilt = 0;
@@ -3028,7 +3031,6 @@ export default function StellarDrift() {
     gs.state = 'start';
     gs.ship.x = gs.w * gs.phys.shipX;
     gs.ship.y = gs.h * 0.5;
-    gs.ship.prevY = gs.ship.y; // teleport — keep interpolation from sweeping
     gs.ship.vx = 0;
     gs.ship.vy = 0;
     gs.ship.tilt = 0;
@@ -3065,10 +3067,11 @@ export default function StellarDrift() {
     gs.time++;
 
     // Snapshot pre-tick positions for render interpolation (Batch 2).
+    // World elements only — the ship is rendered at its live y for input
+    // responsiveness (see drawShip), so it is deliberately not snapshotted.
     // Unconditional (all states) so entities that don't move this tick — e.g.
     // columns frozen after death — interpolate to themselves instead of
     // jittering between a stale prev and the current value.
-    gs.ship.prevY = gs.ship.y;
     for (let i = 0; i < gs.columns.length; i++) {
       gs.columns[i].prevX = gs.columns[i].x;
     }
@@ -3422,10 +3425,8 @@ export default function StellarDrift() {
       if (gs.state === 'start') {
         const haloPulse = 0.85 + Math.sin(gs.time * 0.04) * 0.15;
         const haloR = Math.min(w, h) * 0.32 * haloPulse;
-        // Track the same interpolated y as drawShip so the halo doesn't lag
-        // the ship during the idle bob at low display rates.
-        const shipY = ilerp(gs.ship.prevY, gs.ship.y, alpha);
-        const halo = offCtx.createRadialGradient(gs.ship.x, shipY, 0, gs.ship.x, shipY, haloR);
+        // Live ship y (matches drawShip — the ship is not interpolated).
+        const halo = offCtx.createRadialGradient(gs.ship.x, gs.ship.y, 0, gs.ship.x, gs.ship.y, haloR);
         halo.addColorStop(0, `${planet.accent}38`);
         halo.addColorStop(0.5, `${planet.accent}14`);
         halo.addColorStop(1, `${planet.accent}00`);
@@ -3433,7 +3434,7 @@ export default function StellarDrift() {
         offCtx.fillRect(0, 0, w, h);
       }
       // Ship
-      drawShip(offCtx, gs.ship, planet, gs.time, s, gs.alienId, gs.hatId, alpha);
+      drawShip(offCtx, gs.ship, planet, gs.time, s, gs.alienId, gs.hatId);
       // Particles
       drawParticles(offCtx, gs.particles);
       // Popups
@@ -3617,7 +3618,6 @@ export default function StellarDrift() {
           // Scale ship Y proportionally during play
           gsRef.current.ship.y = (gsRef.current.ship.y / prevH) * h;
         }
-        gsRef.current.ship.prevY = gsRef.current.ship.y; // resize is a teleport
         // Rescale velocities and gameplay pixel quantities
         gsRef.current.ship.vy *= scaleRatio;
         gsRef.current.ship.vx = 0;
