@@ -128,69 +128,6 @@ const FROSTED_SCENE_BLUR_PX = 5;
 // players, read once at module load. Purely diagnostic; changes no game timing.
 const SHOW_FPS = typeof location !== 'undefined' && /[?&]fps\b/.test(location.search);
 
-// TEMP A/B diagnostic: append ?legacy to drive the sim with a CONSTANT per-frame
-// step (FIXED_DT) instead of the real/smoothed dt. Since the per-second physics
-// × FIXED_DT exactly equals May-24's old per-frame amounts, ?legacy reproduces
-// May-24 motion precisely (and, like May-24, runs at half speed at 30 fps). Lets
-// us flip motion models on one deployment: if ?legacy is smooth at 60 fps and the
-// default shakes, the cause is the dt-scaled motion; if both shake, it isn't.
-const LEGACY_STEP = typeof location !== 'undefined' && /[?&]legacy\b/.test(location.search);
-
-// TEMP render-cost diagnostics. The A/B test showed the shake is identical with
-// May-24 motion (mode legacy) — so it's not the timestep. js is ~0.4ms but frame
-// max jumps 17→31ms during play, i.e. GPU-bound. These flags disable the two
-// per-frame full-canvas blur passes (the prime iOS GPU cost) to test if they're
-// the cause: ?nobloom skips the bloom glow, ?nofrost skips the frosted backdrop.
-const NO_BLOOM = typeof location !== 'undefined' && /[?&]nobloom\b/.test(location.search);
-const NO_FROST = typeof location !== 'undefined' && /[?&]nofrost\b/.test(location.search);
-
-// ── Fixed-timestep simulation (Phase 0.5) ──────────────────────────
-// The simulation advances in fixed 60 Hz ticks, decoupled from the display
-// refresh rate, so motion runs at the same wall-clock speed whether the device
-// renders at 60 fps or — iOS Low Power Mode — 30 fps. Each rendered frame
-// accumulates the real elapsed time and runs as many fixed ticks as needed to
-// catch up to real time ("Fix Your Timestep!", Glenn Fiedler).
-//
-// TIME MODEL (delta-time). The original May-24 build advanced a fixed amount per
-// *rendered frame*, assuming 60 fps — so speed halved at 30 fps. simulateTick()
-// now runs ONCE per frame with the real elapsed dt (see its header). Quantities
-// fall into three kinds:
-//   • CONTINUOUS LINEAR MOTION (ship vertical velocity/gravity/thrust, world
-//     scroll speed) is expressed in units PER SECOND and integrated by dtSec.
-//     The per-frame → per-second factor depends on the time exponent: a VELOCITY
-//     (px/frame) scales ×60 (= TICKS_PER_SECOND); an ACCELERATION (px/frame²)
-//     scales ×60² (=3600), because the time unit is squared. So in makePhysics():
-//     impulse, maxRiseSpeed, maxFallSpeed, baseSpeed, speedPerObstacle use ×60,
-//     but gravity uses ×60². (NOTE: this corrects the spec's "×60 for everything"
-//     hint — ×60 gravity is 60× too weak and rockets the ship up on one tap.)
-//   • DURATION / TICK COUNTERS (comboTimer 180, transitionCard 120, deathOverlay
-//     20, spawnInterval 95→55, framesSinceSpawn, shake/flash, planetTransition
-//     +1/90, particle/ring/popup life) are still expressed as 60 Hz tick counts,
-//     but advanced by the frame scale fs = dt/FIXED_DT each frame (−=fs / +=fs)
-//     so they keep their wall-clock duration at any fps. At 60 fps fs≈1, i.e.
-//     identical to the old one-tick decrement.
-//   • The LATERAL damped-spring and cosmetic particle/dust/ring velocities stay
-//     in per-tick units, scaled to the frame: linear terms ×fs, multiplicative
-//     decays ×pow(k, fs). gs.time is a 60 Hz clock advanced by fs (fractional),
-//     read only via Math.sin(…) for animation phases — trail emission uses a
-//     ship.trailT accumulator instead of the old gs.time%N test.
-// NOTE: atmospheric dust used to advance inside drawDust() (the render path),
-// which made it frame-rate-dependent; its integration is now in simulateTick().
-const FIXED_DT = 1000 / 60;                 // ms of one 60 Hz reference tick (16.667 ms)
-const TICKS_PER_SECOND = 1000 / FIXED_DT;   // 60 — the per-frame → per-second factor
-const MAX_FRAME_TIME = 250;                 // clamp a single frame's dt (tab-restore guard)
-
-// RENDERING: everything is drawn at its LIVE simulated position — there is no
-// render interpolation. Batch 2 added it to smooth low-refresh (30 fps Low
-// Power Mode) motion, but interpolating against the fixed 60 Hz timestep, whose
-// ticks-per-frame fluctuates (0/1/2 at 60 fps, 1/2/3 at 30 fps), turned that
-// jitter into a continuous position wobble (shake) and a smear at 30 fps; it
-// also put the world a tick behind the live-rendered ship, exposing a relative
-// wobble on every tap. Live rendering keeps ship and world on one clock — the
-// May-24 feel — at the cost of honest stepping (not lag/wobble) at 30 fps. The
-// fixed-timestep accumulator (Batch 1) is what keeps speed frame-rate
-// independent and is unaffected by this; only the draw path reverted.
-
 // ── Configurable constants ─────────────────────────────────────────
 // Set this to your deployed game URL. Used in the share-score snippet.
 const VERCEL_URL = 'https://stellar-drift.vercel.app';
@@ -323,21 +260,14 @@ const PHYSICS_BASE = {
 };
 
 const makePhysics = (scale, widthScale) => ({
-  // Vertical physics in PER-SECOND units, integrated by the fixed timestep in
-  // simulateTick(). Conversion factor depends on the dimension's time exponent:
-  //   • a VELOCITY (px/frame → px/s) scales by ×TICKS_PER_SECOND (×60)
-  //   • an ACCELERATION (px/frame² → px/s²) scales by ×TICKS_PER_SECOND² (×3600)
-  // because the unit of time appears squared. At a 1/60 s tick these reproduce
-  // the original per-frame values exactly (gravity 0.38/frame² → 1368 px/s²,
-  // impulse -8.2/frame → -492 px/s).
-  gravity: PHYSICS_BASE.gravity * scale * TICKS_PER_SECOND * TICKS_PER_SECOND, // px/s² (accel ⇒ ×60²)
-  impulse: PHYSICS_BASE.impulse * scale * TICKS_PER_SECOND,           // px/s (tap sets vy)
-  maxRiseSpeed: PHYSICS_BASE.maxRiseSpeed * scale * TICKS_PER_SECOND, // px/s
-  maxFallSpeed: PHYSICS_BASE.maxFallSpeed * scale * TICKS_PER_SECOND, // px/s
-  // Horizontal scroll, also PER SECOND. widthScale keeps column-cross time
-  // constant across aspect ratios; ×TICKS_PER_SECOND converts 2.5 px/frame → 150 px/s.
-  baseSpeed: PHYSICS_BASE.baseSpeed * widthScale * TICKS_PER_SECOND,
-  speedPerObstacle: PHYSICS_BASE.speedPerObstacle * widthScale * TICKS_PER_SECOND,
+  gravity: PHYSICS_BASE.gravity * scale,
+  impulse: PHYSICS_BASE.impulse * scale,
+  maxRiseSpeed: PHYSICS_BASE.maxRiseSpeed * scale,
+  maxFallSpeed: PHYSICS_BASE.maxFallSpeed * scale,
+  // Horizontal motion uses widthScale so column-cross time is constant
+  // regardless of viewport aspect ratio.
+  baseSpeed: PHYSICS_BASE.baseSpeed * widthScale,
+  speedPerObstacle: PHYSICS_BASE.speedPerObstacle * widthScale,
   startGap: PHYSICS_BASE.startGap * scale,
   gapShrinkPerPlanet: PHYSICS_BASE.gapShrinkPerPlanet * scale,
   minGap: PHYSICS_BASE.minGap * scale,
@@ -980,12 +910,6 @@ export default function StellarDrift() {
       time: 0,
       lastFlapFrame: -10,
       hasInteracted: false,
-      // Delta-time loop state: _lastFrameTime (set on the first rendered frame)
-      // is differenced each frame to get the raw elapsed dt; _smoothDt is its
-      // EMA, fed to simulateTick() so per-frame timing noise doesn't become
-      // obstacle position jitter. See the SIMULATION STEP / step() notes.
-      _lastFrameTime: null,
-      _smoothDt: null,
     };
   }, [makeStars, makeDust]);
 
@@ -1728,11 +1652,14 @@ export default function StellarDrift() {
     ctx.restore();
   }, []);
 
-  // Pure draw: dust positions are advanced in simulateTick() (Phase 0.5) so the
-  // drift no longer slows down at low display frame rates.
-  const drawDust = useCallback((ctx, dust) => {
+  const drawDust = useCallback((ctx, dust, w, h, accent) => {
     ctx.save();
     dust.forEach((d) => {
+      d.x += d.vx;
+      d.y += d.vy;
+      if (d.x < -10) d.x = w + 10;
+      if (d.y < 0) d.y = h;
+      if (d.y > h) d.y = 0;
       ctx.fillStyle = `rgba(255, 240, 220, ${d.a})`;
       ctx.beginPath();
       ctx.arc(d.x, d.y, d.r, 0, Math.PI * 2);
@@ -1859,10 +1786,6 @@ export default function StellarDrift() {
 
   const drawShip = useCallback((ctx, ship, planet, t, s, design = 'blip', hatId = 'none') => {
     const alien = findAlien(design);
-    // Rendered at the LIVE simulated y (like everything else — see the
-    // RENDERING note up top). The alien is the primary input-feedback element:
-    // players tap and immediately watch it to judge timing, so any render lag
-    // reads as broken input.
     ctx.save();
     ctx.translate(ship.x, ship.y);
     ctx.rotate(ship.tilt);
@@ -2601,8 +2524,7 @@ export default function StellarDrift() {
     ctx.fillText(`BEST ${best}`, w / 2, sy + sh + 6 * s);
     ctx.restore();
 
-    // Score flash (accent ring around the pill). The countdown is decremented
-    // in simulateTick() (not here) so its duration is frame-rate independent.
+    // Score flash (accent ring around the pill)
     if (gs.scoreFlash > 0) {
       ctx.save();
       ctx.globalAlpha = gs.scoreFlash / 10;
@@ -2611,6 +2533,7 @@ export default function StellarDrift() {
       roundRect(ctx, sx - 2 * s, sy - 2 * s, sw + 4 * s, sh + 4 * s, 24 * s);
       ctx.stroke();
       ctx.restore();
+      gs.scoreFlash--;
     }
 
     // Combo bar (moved down to clear the BEST label)
@@ -3057,269 +2980,6 @@ export default function StellarDrift() {
   }, [setMusicLayer]);
 
   // ─────────────────────────────────────────────────────────────
-  // SIMULATION STEP (delta-time)
-  // ─────────────────────────────────────────────────────────────
-  // Advances the game by one frame's worth of real elapsed time. Called exactly
-  // ONCE per rendered frame (see step()), locked to the display — so there is no
-  // tick/refresh beat, which was the source of the obstacle shake. dtMs is the
-  // clamped real frame time. Two scales are used:
-  //   • dtSec = dtMs/1000 — integrates per-SECOND quantities (gravity, vy, world
-  //     scroll). Frame-rate independent by construction.
-  //   • fs = dtMs/FIXED_DT — "how many 60 Hz ticks this frame represents" (≈1 at
-  //     60 fps, ≈2 at 30 fps). Scales the per-tick quantities carried over from
-  //     the May-24 feel: cosmetic velocities (×fs), tick-count timers (−=fs), and
-  //     multiplicative decays (×pow(k, fs)). At fs=1 every line equals the old
-  //     fixed 60 Hz tick, so 60 fps feel is preserved exactly.
-  const simulateTick = useCallback((gs, dtMs) => {
-    const w = gs.w, h = gs.h;
-    const phys = gs.phys;
-    const s = phys.scale;
-    const dtSec = dtMs / 1000;  // real elapsed seconds (per-second integration)
-    const fs = dtMs / FIXED_DT; // frame scale: # of 60 Hz ticks this frame
-    gs.time += fs;
-
-    const planet = PLANETS[gs.planetIdx];
-    // World scroll speed in px/s: base + per-level bonus + (score × per-obstacle).
-    const levelBonus = (LEVEL_SPEED_BONUS[gs.planetIdx] || 0) * phys.widthScale * TICKS_PER_SECOND;
-    const scoreBonus = gs.score * phys.speedPerObstacle;
-    const moveSpeed = phys.baseSpeed + levelBonus + scoreBonus;
-
-    // Planet transition crossfade (90 ticks = 1.5 s)
-    if (gs.planetTransition < 1) {
-      gs.planetTransition = Math.min(1, gs.planetTransition + fs / 90);
-    }
-
-    // ── UPDATE ──
-    if (gs.state === 'playing') {
-      // Spawn (spawnInterval / framesSinceSpawn count sim ticks)
-      gs.framesSinceSpawn += fs;
-      if (gs.framesSinceSpawn >= gs.spawnInterval) {
-        spawnColumn(gs);
-      }
-      // Ship vertical physics — per-second velocity/accel integrated by dtSec.
-      gs.ship.vy += phys.gravity * dtSec;
-      if (gs.ship.vy < phys.maxRiseSpeed) gs.ship.vy = phys.maxRiseSpeed;
-      if (gs.ship.vy > phys.maxFallSpeed) gs.ship.vy = phys.maxFallSpeed;
-      gs.ship.y += gs.ship.vy * dtSec;
-      // Smoothed tilt — target maps velocity→angle with a FIXED 60 Hz reference
-      // (so the mapping is fps-independent); smoothing uses the frame-rate-correct
-      // exponential decay form so it settles at the same wall-clock rate.
-      const targetTilt = Math.max(-0.5, Math.min(0.9, (gs.ship.vy / TICKS_PER_SECOND / s) * 0.06));
-      gs.ship.tilt += (targetTilt - gs.ship.tilt) * (1 - Math.pow(1 - phys.tiltSmoothing, fs));
-      // Lateral drift — cosmetic damped spring in per-tick units, scaled to the
-      // frame: impulses ×fs, multiplicative damping ^fs, displacement ×fs.
-      const restX = gs.w * phys.shipX;
-      gs.ship.vx += gs.ship.tilt * phys.lateralTiltInfluence * fs;
-      gs.ship.vx += Math.sin(gs.time * 0.04) * 0.015 * phys.lateralAmbientSway * fs;
-      gs.ship.vx += (restX - gs.ship.x) * phys.lateralRecenter * fs;
-      gs.ship.vx *= Math.pow(phys.lateralDamping, fs);
-      gs.ship.x += gs.ship.vx * fs;
-      // Trail — emit on a fixed ~2-tick cadence regardless of fps (was gs.time%2,
-      // which no longer works with a fractional, frame-scaled clock).
-      gs.ship.trailT = (gs.ship.trailT || 0) + fs;
-      if (gs.ship.trailT >= 2) {
-        gs.ship.trailT %= 2;
-        gs.ship.trail.push({ x: gs.ship.x - 12 * s, y: gs.ship.y });
-        if (gs.ship.trail.length > 12) gs.ship.trail.shift();
-      }
-      for (let i = gs.columns.length - 1; i >= 0; i--) {
-        const c = gs.columns[i];
-        c.x -= moveSpeed * dtSec;
-        // Score?
-        if (!c.scored && c.x + phys.columnWidth < gs.ship.x - phys.shipRadius * 0.6) {
-          c.scored = true;
-          gs.score++;
-          gs.obstaclesInPlanet++;
-          gs.combo++;
-          gs.comboTimer = 180;
-          gs.scoreFlash = 10;
-          // Score popup
-          gs.popups.push({
-            text: '+1', x: c.x + phys.columnWidth / 2, y: c.gapY,
-            size: 22 * s, color: planet.accent,
-            life: 40, maxLife: 40, vy: -1 * s,
-          });
-          playScore(gs.combo);
-          if (gs.combo >= 4 && gs.combo % 4 === 0) {
-            gs.popups.push({
-              text: `×${gs.combo} COMBO`, x: w / 2, y: h * 0.4,
-              size: 32 * s, color: planet.accent,
-              life: 50, maxLife: 50, vy: -0.6 * s,
-            });
-            playCombo();
-          }
-          // Milestones
-          if (gs.score === 10 || gs.score === 25 || gs.score === 50 || gs.score === 100) {
-            onMilestoneReached(gs.score);
-          }
-          // Milestone celebration particles
-          if (gs.score === 5 || gs.score === 15 || gs.score === 25 || gs.score === 50 || gs.score === 75 || gs.score === 100) {
-            for (let k = 0; k < 30; k++) {
-              const a = Math.random() * Math.PI * 2;
-              const sp = (Math.random() * 5 + 1.5) * s;
-              gs.particles.push({
-                x: c.x + phys.columnWidth / 2, y: c.gapY,
-                vx: Math.cos(a) * sp, vy: Math.sin(a) * sp,
-                r: (Math.random() * 3 + 1.5) * s,
-                life: 50, maxLife: 50,
-                color: planet.accent,
-              });
-            }
-          }
-          // Music layer progression — starts at layer 1, hat+lead joins at 10.
-          if (gs.score === 10) setMusicLayer(2);
-          // Planet transition
-          if (gs.obstaclesInPlanet >= 15 && gs.planetIdx < PLANETS.length - 1) {
-            gs.prevPlanetIdx = gs.planetIdx;
-            gs.planetIdx++;
-            gs.obstaclesInPlanet = 0;
-            gs.planetTransition = 0;
-            gs.transitionCard = 120;
-            gs.combo = 0;
-            gs.comboTimer = 0;
-            gs.transitionCardPlanet = gs.planetIdx;
-            gs.gap = Math.max(phys.minGap, gs.gap - phys.gapShrinkPerPlanet);
-            gs.spawnInterval = Math.max(phys.minSpawnInterval, gs.spawnInterval - phys.spawnShrinkPerPlanet);
-            gs.stars = makeStars(w, h, 60, s);
-            gs.dust = makeDust(w, h, 30, s);
-            playLevelUp();
-          }
-        }
-        // Off-screen
-        if (c.x + phys.columnWidth + 20 * s < 0) {
-          gs.columns.splice(i, 1);
-          continue;
-        }
-        // Collision
-        const topH = c.gapY - c.gap / 2;
-        const botY = c.gapY + c.gap / 2;
-        const sx = gs.ship.x, sy = gs.ship.y, sr = phys.shipRadius - 2 * s;
-        if (sx + sr > c.x && sx - sr < c.x + phys.columnWidth) {
-          if (sy - sr < topH || sy + sr > botY) {
-            die(gs);
-          }
-        }
-      }
-      // Ground/ceiling
-      if (gs.ship.y - phys.shipRadius < 0) {
-        gs.ship.y = phys.shipRadius;
-        gs.ship.vy = 0;
-      }
-      if (gs.ship.y + phys.shipRadius > h) {
-        die(gs);
-      }
-      // Star Fragments — move with world, animate, collect on overlap
-      for (let i = gs.fragments.length - 1; i >= 0; i--) {
-        const f = gs.fragments[i];
-        f.x -= moveSpeed * dtSec;
-        f.rot += 0.045 * fs;
-        f.bounce += 0.08 * fs;
-        if (!f.collected) {
-          const dx = f.x - gs.ship.x;
-          const dy = f.y - gs.ship.y;
-          const cr = phys.shipRadius + 12 * s;
-          if (dx * dx + dy * dy < cr * cr) {
-            f.collected = true;
-            const newTotal = loadFragments() + 1;
-            saveFragments(newTotal);
-            if (gs.onFragmentChange) gs.onFragmentChange(newTotal);
-            playFragment();
-            // Particle burst in accent
-            for (let k = 0; k < 22; k++) {
-              const a = Math.random() * Math.PI * 2;
-              const sp = (Math.random() * 4 + 1) * s;
-              gs.particles.push({
-                x: f.x, y: f.y,
-                vx: Math.cos(a) * sp, vy: Math.sin(a) * sp,
-                r: (Math.random() * 2.5 + 1) * s,
-                life: 40, maxLife: 40,
-                color: planet.accent,
-              });
-            }
-            gs.popups.push({
-              text: '+1 ★', x: f.x, y: f.y - 10 * s,
-              size: 18 * s, color: planet.accent,
-              life: 36, maxLife: 36, vy: -1 * s,
-            });
-          }
-        }
-        if (f.collected || f.x + 30 * s < 0) {
-          gs.fragments.splice(i, 1);
-        }
-      }
-      // Combo timer
-      if (gs.comboTimer > 0) {
-        gs.comboTimer -= fs;
-        if (gs.comboTimer <= 0) { gs.comboTimer = 0; gs.combo = 0; }
-      }
-    } else if (gs.state === 'start') {
-      // Idle ship bob
-      gs.ship.idleT += 0.04 * fs;
-      gs.ship.y = h * 0.5 + Math.sin(gs.ship.idleT) * 14 * s;
-      gs.ship.vy = Math.cos(gs.ship.idleT) * 14 * 0.04 * s * TICKS_PER_SECOND; // px/s (sign drives flame)
-      gs.ship.vx = 0;
-      gs.ship.tilt = Math.cos(gs.ship.idleT) * 0.12;
-      gs.ship.x = w * phys.shipX;
-      // Trail — fixed ~4-tick cadence (was gs.time%4).
-      gs.ship.trailT = (gs.ship.trailT || 0) + fs;
-      if (gs.ship.trailT >= 4) {
-        gs.ship.trailT %= 4;
-        gs.ship.trail.push({ x: gs.ship.x - 12 * s, y: gs.ship.y });
-        if (gs.ship.trail.length > 10) gs.ship.trail.shift();
-      }
-    } else if (gs.state === 'dead') {
-      gs.deathOverlay = Math.min(20, gs.deathOverlay + fs);
-      // Ship falls — per-second gravity integrated by dtSec; lateral per-tick (×fs).
-      gs.ship.vy += phys.gravity * 0.6 * dtSec;
-      gs.ship.y += gs.ship.vy * dtSec;
-      gs.ship.x += gs.ship.vx * fs;
-      gs.ship.vx *= Math.pow(0.95, fs);
-      gs.ship.tilt = Math.min(1.2, gs.ship.tilt + 0.02 * fs);
-    }
-
-    // Particles update (cosmetic bursts; per-tick velocities scaled ×fs)
-    for (let i = gs.particles.length - 1; i >= 0; i--) {
-      const p = gs.particles[i];
-      p.x += p.vx * fs; p.y += p.vy * fs;
-      p.vy += 0.08 * s * fs;
-      p.vx *= Math.pow(0.98, fs);
-      p.life -= fs;
-      if (p.life <= 0) gs.particles.splice(i, 1);
-    }
-    // Rings update
-    for (let i = gs.rings.length - 1; i >= 0; i--) {
-      const r = gs.rings[i];
-      r.radius += 2.5 * (r.scale || s) * fs;
-      r.life -= fs;
-      if (r.life <= 0) gs.rings.splice(i, 1);
-    }
-    // Popups update
-    for (let i = gs.popups.length - 1; i >= 0; i--) {
-      const p = gs.popups[i];
-      p.y += (p.vy || -1 * s) * fs;
-      p.life -= fs;
-      if (p.life <= 0) gs.popups.splice(i, 1);
-    }
-    // Atmospheric dust — advanced here (previously inside drawDust) so its drift
-    // is frame-rate independent. Per-tick velocities scaled ×fs.
-    for (let i = 0; i < gs.dust.length; i++) {
-      const d = gs.dust[i];
-      d.x += d.vx * fs;
-      d.y += d.vy * fs;
-      if (d.x < -10) d.x = w + 10;
-      if (d.y < 0) d.y = h;
-      if (d.y > h) d.y = 0;
-    }
-
-    // Timers / screen-shake decay (tick countdowns, −=fs; clamped at 0 since the
-    // fractional step won't land exactly on it).
-    if (gs.scoreFlash > 0) gs.scoreFlash = Math.max(0, gs.scoreFlash - fs);
-    if (gs.shake > 0) gs.shake = Math.max(0, gs.shake - fs);
-    if (gs.flash > 0) gs.flash = Math.max(0, gs.flash - fs);
-    if (gs.transitionCard > 0) gs.transitionCard = Math.max(0, gs.transitionCard - fs);
-  }, [spawnColumn, die, playScore, playCombo, playLevelUp, playFragment, setMusicLayer, makeStars, makeDust]);
-
-  // ─────────────────────────────────────────────────────────────
   // GAME LOOP
   // ─────────────────────────────────────────────────────────────
   const step = useCallback((timestamp) => {
@@ -3334,43 +2994,11 @@ export default function StellarDrift() {
     try {
       const ctx = canvas.getContext('2d');
       const w = gs.w, h = gs.h;
-      // ── DELTA-TIME STEP ──
-      // Exactly one simulation update per rendered frame, advanced by the real
-      // elapsed time and locked to the display. One update/frame means the sim
-      // can't beat against the refresh rate (the obstacle-shake cause); the dt
-      // scaling inside simulateTick keeps speed frame-rate independent. frameTime
-      // is clamped to MAX_FRAME_TIME so a backgrounded tab can't fast-forward on
-      // return.
-      const now = timestamp ?? performance.now();
-      // ?fps diagnostic: start of this frame’s JS work (no-op unless flag on).
-      const _jsStart = SHOW_FPS ? performance.now() : 0;
-      if (gs._lastFrameTime == null) gs._lastFrameTime = now;
-      let frameTime = now - gs._lastFrameTime;
-      gs._lastFrameTime = now;
-      if (frameTime < 0) frameTime = 0;
-      if (frameTime > MAX_FRAME_TIME) frameTime = MAX_FRAME_TIME;
-      // SMOOTHED dt. The display presents on a near-regular grid, but the per-
-      // frame dt MEASUREMENT is noisy (see frame max ≫ average in the ?fps
-      // overlay; a tap adds a spike too). Scaling obstacle motion by the raw dt
-      // turns that timing noise into position jitter — the shake. May-24 was
-      // immune because it moved a CONSTANT amount per frame (which is also why
-      // its speed halved at 30 fps). An EMA recovers a near-constant per-frame
-      // step at steady fps (May-24 smoothness) while still tracking the true
-      // average rate (correct speed at any refresh). The input is capped at 2×
-      // so a single spike / tab-restore frame can't poison the average.
-      if (gs._smoothDt == null) {
-        gs._smoothDt = frameTime || FIXED_DT;
-      } else {
-        const dtForEma = Math.min(frameTime, gs._smoothDt * 2);
-        gs._smoothDt += (dtForEma - gs._smoothDt) * 0.1;
-      }
-      // ticksThisFrame stays for the ?fps histogram: now always 0 or 1, so a
-      // clean run reads ticks 0/N/0/0 — the proof that the beat is gone.
-      // ?legacy forces a constant step (= May-24 motion) for the A/B test.
-      const simDt = LEGACY_STEP ? FIXED_DT : gs._smoothDt;
-      let ticksThisFrame = 0;
-      if (simDt > 0) { simulateTick(gs, simDt); ticksThisFrame = 1; }
-
+      // ?fps diagnostic: real RAF timestamp (interval between frames) and the
+      // start of this frame's JS work. Both no-ops unless the flag is on.
+      const _now = SHOW_FPS ? (timestamp ?? performance.now()) : 0;
+      const _jsStart = _now;
+      gs.time++;
       // Mirror gs.state into React so menu DOM can react to play/dead transitions.
       if (gs.state !== gs._lastViewSeen) {
         gs._lastViewSeen = gs.state;
@@ -3383,15 +3011,230 @@ export default function StellarDrift() {
         if (gs.onPlanetChange) gs.onPlanetChange(gs.planetIdx);
       }
 
-      // Resolve current planet & speed for rendering / HUD.
+      // Resolve current planet & speed at top so HUD always has it
       const planet = PLANETS[gs.planetIdx];
       const phys = gs.phys;
       const s = phys.scale;
-      // speedMul is the HUD "×": current scroll speed ÷ base. Both are per-second
-      // now, so the ratio (and the displayed multiplier) is unchanged from May-24.
-      const levelBonus = (LEVEL_SPEED_BONUS[gs.planetIdx] || 0) * phys.widthScale * TICKS_PER_SECOND;
+      // Speed = baseSpeed + per-level bonus + (score × speedPerObstacle).
+      // Each obstacle adds 1 to score; level bonus jumps as the player crosses
+      // into each new planet. speedMul is the ratio for the HUD "×".
+      const levelBonus = (LEVEL_SPEED_BONUS[gs.planetIdx] || 0) * phys.widthScale;
       const scoreBonus = gs.score * phys.speedPerObstacle;
-      const speedMul = (phys.baseSpeed + levelBonus + scoreBonus) / phys.baseSpeed;
+      const moveSpeed = phys.baseSpeed + levelBonus + scoreBonus;
+      const speedMul = moveSpeed / phys.baseSpeed;
+
+      // Apply planet transition crossfade
+      if (gs.planetTransition < 1) {
+        gs.planetTransition = Math.min(1, gs.planetTransition + 1 / 90);
+      }
+
+      // ── UPDATE ──
+      if (gs.state === 'playing') {
+        // Spawn
+        gs.framesSinceSpawn++;
+        if (gs.framesSinceSpawn >= gs.spawnInterval) {
+          spawnColumn(gs);
+        }
+        // Ship physics — momentum-based, floaty
+        gs.ship.vy += phys.gravity;
+        if (gs.ship.vy < phys.maxRiseSpeed) gs.ship.vy = phys.maxRiseSpeed;
+        if (gs.ship.vy > phys.maxFallSpeed) gs.ship.vy = phys.maxFallSpeed;
+        gs.ship.y += gs.ship.vy;
+        // Smoothed tilt — based on unscaled vy ratio so feel is consistent across viewports
+        const targetTilt = Math.max(-0.5, Math.min(0.9, (gs.ship.vy / s) * 0.06));
+        gs.ship.tilt += (targetTilt - gs.ship.tilt) * phys.tiltSmoothing;
+        // Lateral drift influenced by tilt + ambient sway + gentle recenter
+        const restX = gs.w * phys.shipX;
+        gs.ship.vx += gs.ship.tilt * phys.lateralTiltInfluence;
+        gs.ship.vx += Math.sin(gs.time * 0.04) * 0.015 * phys.lateralAmbientSway;
+        gs.ship.vx += (restX - gs.ship.x) * phys.lateralRecenter;
+        gs.ship.vx *= phys.lateralDamping;
+        gs.ship.x += gs.ship.vx;
+        // Trail
+        if (gs.time % 2 === 0) {
+          gs.ship.trail.push({ x: gs.ship.x - 12 * s, y: gs.ship.y });
+          if (gs.ship.trail.length > 12) gs.ship.trail.shift();
+        }
+        for (let i = gs.columns.length - 1; i >= 0; i--) {
+          const c = gs.columns[i];
+          c.x -= moveSpeed;
+          // Score?
+          if (!c.scored && c.x + phys.columnWidth < gs.ship.x - phys.shipRadius * 0.6) {
+            c.scored = true;
+            gs.score++;
+            gs.obstaclesInPlanet++;
+            gs.combo++;
+            gs.comboTimer = 180;
+            gs.scoreFlash = 10;
+            // Score popup
+            gs.popups.push({
+              text: '+1', x: c.x + phys.columnWidth / 2, y: c.gapY,
+              size: 22 * s, color: planet.accent,
+              life: 40, maxLife: 40, vy: -1 * s,
+            });
+            playScore(gs.combo);
+            if (gs.combo >= 4 && gs.combo % 4 === 0) {
+              gs.popups.push({
+                text: `×${gs.combo} COMBO`, x: w / 2, y: h * 0.4,
+                size: 32 * s, color: planet.accent,
+                life: 50, maxLife: 50, vy: -0.6 * s,
+              });
+              playCombo();
+            }
+            // Milestones
+            if (gs.score === 10 || gs.score === 25 || gs.score === 50 || gs.score === 100) {
+              onMilestoneReached(gs.score);
+            }
+            // Milestone celebration particles
+            if (gs.score === 5 || gs.score === 15 || gs.score === 25 || gs.score === 50 || gs.score === 75 || gs.score === 100) {
+              for (let k = 0; k < 30; k++) {
+                const a = Math.random() * Math.PI * 2;
+                const sp = (Math.random() * 5 + 1.5) * s;
+                gs.particles.push({
+                  x: c.x + phys.columnWidth / 2, y: c.gapY,
+                  vx: Math.cos(a) * sp, vy: Math.sin(a) * sp,
+                  r: (Math.random() * 3 + 1.5) * s,
+                  life: 50, maxLife: 50,
+                  color: planet.accent,
+                });
+              }
+            }
+            // Music layer progression — starts at layer 1, hat+lead joins at 10.
+            if (gs.score === 10) setMusicLayer(2);
+            // Planet transition
+            if (gs.obstaclesInPlanet >= 15 && gs.planetIdx < PLANETS.length - 1) {
+              gs.prevPlanetIdx = gs.planetIdx;
+              gs.planetIdx++;
+              gs.obstaclesInPlanet = 0;
+              gs.planetTransition = 0;
+              gs.transitionCard = 120;
+              gs.combo = 0;
+              gs.comboTimer = 0;
+              gs.transitionCardPlanet = gs.planetIdx;
+              gs.gap = Math.max(phys.minGap, gs.gap - phys.gapShrinkPerPlanet);
+              gs.spawnInterval = Math.max(phys.minSpawnInterval, gs.spawnInterval - phys.spawnShrinkPerPlanet);
+              gs.stars = makeStars(w, h, 60, s);
+              gs.dust = makeDust(w, h, 30, s);
+              playLevelUp();
+            }
+          }
+          // Off-screen
+          if (c.x + phys.columnWidth + 20 * s < 0) {
+            gs.columns.splice(i, 1);
+            continue;
+          }
+          // Collision
+          const topH = c.gapY - c.gap / 2;
+          const botY = c.gapY + c.gap / 2;
+          const sx = gs.ship.x, sy = gs.ship.y, sr = phys.shipRadius - 2 * s;
+          if (sx + sr > c.x && sx - sr < c.x + phys.columnWidth) {
+            if (sy - sr < topH || sy + sr > botY) {
+              die(gs);
+            }
+          }
+        }
+        // Ground/ceiling
+        if (gs.ship.y - phys.shipRadius < 0) {
+          gs.ship.y = phys.shipRadius;
+          gs.ship.vy = 0;
+        }
+        if (gs.ship.y + phys.shipRadius > h) {
+          die(gs);
+        }
+        // Star Fragments — move with world, animate, collect on overlap
+        for (let i = gs.fragments.length - 1; i >= 0; i--) {
+          const f = gs.fragments[i];
+          f.x -= moveSpeed;
+          f.rot += 0.045;
+          f.bounce += 0.08;
+          if (!f.collected) {
+            const dx = f.x - gs.ship.x;
+            const dy = f.y - gs.ship.y;
+            const cr = phys.shipRadius + 12 * s;
+            if (dx * dx + dy * dy < cr * cr) {
+              f.collected = true;
+              const newTotal = loadFragments() + 1;
+              saveFragments(newTotal);
+              if (gs.onFragmentChange) gs.onFragmentChange(newTotal);
+              playFragment();
+              // Particle burst in accent
+              for (let k = 0; k < 22; k++) {
+                const a = Math.random() * Math.PI * 2;
+                const sp = (Math.random() * 4 + 1) * s;
+                gs.particles.push({
+                  x: f.x, y: f.y,
+                  vx: Math.cos(a) * sp, vy: Math.sin(a) * sp,
+                  r: (Math.random() * 2.5 + 1) * s,
+                  life: 40, maxLife: 40,
+                  color: planet.accent,
+                });
+              }
+              gs.popups.push({
+                text: '+1 ★', x: f.x, y: f.y - 10 * s,
+                size: 18 * s, color: planet.accent,
+                life: 36, maxLife: 36, vy: -1 * s,
+              });
+            }
+          }
+          if (f.collected || f.x + 30 * s < 0) {
+            gs.fragments.splice(i, 1);
+          }
+        }
+        // Combo timer
+        if (gs.comboTimer > 0) {
+          gs.comboTimer--;
+          if (gs.comboTimer === 0) gs.combo = 0;
+        }
+      } else if (gs.state === 'start') {
+        // Idle ship bob
+        gs.ship.idleT += 0.04;
+        gs.ship.y = h * 0.5 + Math.sin(gs.ship.idleT) * 14 * s;
+        gs.ship.vy = Math.cos(gs.ship.idleT) * 14 * 0.04 * s;
+        gs.ship.vx = 0;
+        gs.ship.tilt = Math.cos(gs.ship.idleT) * 0.12;
+        gs.ship.x = w * phys.shipX;
+        if (gs.time % 4 === 0) {
+          gs.ship.trail.push({ x: gs.ship.x - 12 * s, y: gs.ship.y });
+          if (gs.ship.trail.length > 10) gs.ship.trail.shift();
+        }
+      } else if (gs.state === 'dead') {
+        gs.deathOverlay = Math.min(20, gs.deathOverlay + 1);
+        // Ship falls
+        gs.ship.vy += phys.gravity * 0.6;
+        gs.ship.y += gs.ship.vy;
+        gs.ship.x += gs.ship.vx;
+        gs.ship.vx *= 0.95;
+        gs.ship.tilt = Math.min(1.2, gs.ship.tilt + 0.02);
+      }
+
+      // Particles update
+      for (let i = gs.particles.length - 1; i >= 0; i--) {
+        const p = gs.particles[i];
+        p.x += p.vx; p.y += p.vy;
+        p.vy += 0.08 * s;
+        p.vx *= 0.98;
+        p.life--;
+        if (p.life <= 0) gs.particles.splice(i, 1);
+      }
+      // Rings update
+      for (let i = gs.rings.length - 1; i >= 0; i--) {
+        const r = gs.rings[i];
+        r.radius += 2.5 * (r.scale || s);
+        r.life--;
+        if (r.life <= 0) gs.rings.splice(i, 1);
+      }
+      // Popups update
+      for (let i = gs.popups.length - 1; i >= 0; i--) {
+        const p = gs.popups[i];
+        p.y += p.vy || -1 * s;
+        p.life--;
+        if (p.life <= 0) gs.popups.splice(i, 1);
+      }
+
+      // Shake decay
+      if (gs.shake > 0) gs.shake--;
+      if (gs.flash > 0) gs.flash--;
+      if (gs.transitionCard > 0) gs.transitionCard--;
 
       // ── DRAW to offscreen for bloom pass ──
       const offCtx = off.getContext('2d');
@@ -3419,7 +3262,7 @@ export default function StellarDrift() {
 
       // Atmospheric dust
       if (planet.name === 'MARS' || planet.name === 'JUPITER' || planet.name === 'URANUS') {
-        drawDust(offCtx, gs.dust);
+        drawDust(offCtx, gs.dust, w, h, planet.accent);
       }
 
       // Columns (only while playing or dead-falling)
@@ -3438,7 +3281,6 @@ export default function StellarDrift() {
       if (gs.state === 'start') {
         const haloPulse = 0.85 + Math.sin(gs.time * 0.04) * 0.15;
         const haloR = Math.min(w, h) * 0.32 * haloPulse;
-        // Live ship y (matches drawShip — the ship is not interpolated).
         const halo = offCtx.createRadialGradient(gs.ship.x, gs.ship.y, 0, gs.ship.x, gs.ship.y, haloR);
         halo.addColorStop(0, `${planet.accent}38`);
         halo.addColorStop(0.5, `${planet.accent}14`);
@@ -3462,7 +3304,7 @@ export default function StellarDrift() {
       // frosted-glass cards this frame. One small blur per frame instead
       // of three large ones per card.
       const bs = blurredSceneRef.current;
-      if (!NO_FROST && bs && bs.width > 0) {
+      if (bs && bs.width > 0) {
         const bsCtx = bs.getContext('2d');
         bsCtx.setTransform(1, 0, 0, 1, 0, 0);
         bsCtx.clearRect(0, 0, bs.width, bs.height);
@@ -3478,16 +3320,14 @@ export default function StellarDrift() {
       // has a dpr transform applied — omitting the size double-scales by dpr.
       ctx.drawImage(off, 0, 0, w, h);
       // Bloom: blurred copy at low opacity
-      if (!NO_BLOOM) {
-        ctx.save();
-        ctx.globalAlpha = 0.40;
-        ctx.globalCompositeOperation = 'lighter';
-        ctx.filter = `blur(${8 * s}px)`;
-        ctx.drawImage(off, 0, 0, w, h);
-        ctx.filter = 'none';
-        ctx.globalCompositeOperation = 'source-over';
-        ctx.restore();
-      }
+      ctx.save();
+      ctx.globalAlpha = 0.40;
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.filter = `blur(${8 * s}px)`;
+      ctx.drawImage(off, 0, 0, w, h);
+      ctx.filter = 'none';
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.restore();
 
       // Vignette — soft dark edges to focus the eye, deepens for the start menu
       ctx.save();
@@ -3531,46 +3371,32 @@ export default function StellarDrift() {
       // the cost is iOS compositor/throttling, not our code.
       if (SHOW_FPS) {
         const st = gs._fps || (gs._fps = {
-          last: now, shownAt: now, n: 0, dSum: 0, dMax: 0, jSum: 0, tickSum: 0,
-          fps: 0, dmax: 0, jms: '0.0', stps: 0,
-          // TEMP tick-variance diagnostic: histogram of ticks-per-frame this
-          // window (bucket 3 = "3 or more"), and the displayed snapshot of it.
-          // A clean 1:1 sim/render lock reads 1:N with 0:0 and 2:0 at 60 fps;
-          // accumulator beat shows non-zero 0 and 2 buckets.
-          tBuckets: [0, 0, 0, 0], tHist: '0/0/0/0',
+          last: _now, shownAt: _now, n: 0, dSum: 0, dMax: 0, jSum: 0,
+          fps: 0, dmax: 0, jms: '0.0',
         });
-        const interval = now - st.last;
-        st.last = now;
+        const interval = _now - st.last;
+        st.last = _now;
         const jsMs = performance.now() - _jsStart;
-        st.tickSum += ticksThisFrame; // count sim ticks regardless of frame interval
-        st.tBuckets[Math.min(ticksThisFrame, 3)]++; // per-frame tick-count histogram
         if (interval > 0 && interval < 1000) {
           st.n++; st.dSum += interval; st.jSum += jsMs;
           if (interval > st.dMax) st.dMax = interval;
         }
-        const windowMs = now - st.shownAt;
-        if (windowMs >= 500 && st.n > 0) {
+        if (_now - st.shownAt >= 500 && st.n > 0) {
           st.fps = Math.round(1000 / (st.dSum / st.n));
           st.dmax = Math.round(st.dMax);
           st.jms = (st.jSum / st.n).toFixed(1);
-          // Simulation rate — the key Phase 0.5 diagnostic: should read ~60
-          // even when the display fps line reads ~30 (iOS Low Power Mode).
-          st.stps = Math.round((st.tickSum * 1000) / windowMs);
-          st.tHist = st.tBuckets.join('/'); // frames with 0 / 1 / 2 / 3+ ticks
-          st.tBuckets = [0, 0, 0, 0];
-          st.shownAt = now; st.n = 0; st.dSum = 0; st.dMax = 0; st.jSum = 0; st.tickSum = 0;
+          st.shownAt = _now; st.n = 0; st.dSum = 0; st.dMax = 0; st.jSum = 0;
         }
         ctx.save();
         ctx.font = '600 13px ui-monospace, Menlo, monospace';
         ctx.textAlign = 'left'; ctx.textBaseline = 'top';
-        const fxLabel = `${NO_BLOOM ? '-bloom ' : ''}${NO_FROST ? '-frost' : ''}`.trim() || 'full';
-        const lines = [`mode ${LEGACY_STEP ? 'legacy' : 'dt'}`, `fx ${fxLabel}`, `${st.fps} fps`, `${st.stps} sim/s`, `ticks ${st.tHist}`, `frame max ${st.dmax}ms`, `js ${st.jms}ms`];
+        const lines = [`${st.fps} fps`, `frame max ${st.dmax}ms`, `js ${st.jms}ms`];
         // Bottom-left: the top corners are covered by DOM HUD (fragment pill,
         // trophy/settings buttons). Lifted to clear Safari's bottom bar.
         const boxH = 16 * lines.length + 12;
         const boxY = h - boxH - 90;
         ctx.fillStyle = 'rgba(0,0,0,0.62)';
-        ctx.fillRect(8, boxY, 156, boxH);
+        ctx.fillRect(8, boxY, 132, boxH);
         ctx.fillStyle = '#00ff88';
         lines.forEach((t, i) => ctx.fillText(t, 14, boxY + 6 + i * 16));
         ctx.restore();
@@ -3581,9 +3407,10 @@ export default function StellarDrift() {
 
     rafRef.current = requestAnimationFrame(step);
   }, [
-    simulateTick, drawBackground, drawStars, drawDust, drawColumnPair,
+    spawnColumn, drawBackground, drawStars, drawDust, drawColumnPair,
     drawShip, drawParticles, drawRings, drawPopups, drawFog, drawFragments,
     drawHUD, drawStartScreen, drawDeathScreen, drawTransitionCard,
+    die, playScore, playCombo, playLevelUp, playFragment, setMusicLayer, makeStars, makeDust,
   ]);
 
   // ─────────────────────────────────────────────────────────────
