@@ -965,9 +965,11 @@ export default function StellarDrift() {
       lastFlapFrame: -10,
       hasInteracted: false,
       // Delta-time loop state: _lastFrameTime (set on the first rendered frame)
-      // is differenced each frame to get the real elapsed dt passed to
-      // simulateTick(). See the SIMULATION STEP note.
+      // is differenced each frame to get the raw elapsed dt; _smoothDt is its
+      // EMA, fed to simulateTick() so per-frame timing noise doesn't become
+      // obstacle position jitter. See the SIMULATION STEP / step() notes.
       _lastFrameTime: null,
+      _smoothDt: null,
     };
   }, [makeStars, makeDust]);
 
@@ -3331,10 +3333,25 @@ export default function StellarDrift() {
       gs._lastFrameTime = now;
       if (frameTime < 0) frameTime = 0;
       if (frameTime > MAX_FRAME_TIME) frameTime = MAX_FRAME_TIME;
+      // SMOOTHED dt. The display presents on a near-regular grid, but the per-
+      // frame dt MEASUREMENT is noisy (see frame max ≫ average in the ?fps
+      // overlay; a tap adds a spike too). Scaling obstacle motion by the raw dt
+      // turns that timing noise into position jitter — the shake. May-24 was
+      // immune because it moved a CONSTANT amount per frame (which is also why
+      // its speed halved at 30 fps). An EMA recovers a near-constant per-frame
+      // step at steady fps (May-24 smoothness) while still tracking the true
+      // average rate (correct speed at any refresh). The input is capped at 2×
+      // so a single spike / tab-restore frame can't poison the average.
+      if (gs._smoothDt == null) {
+        gs._smoothDt = frameTime || FIXED_DT;
+      } else {
+        const dtForEma = Math.min(frameTime, gs._smoothDt * 2);
+        gs._smoothDt += (dtForEma - gs._smoothDt) * 0.1;
+      }
       // ticksThisFrame stays for the ?fps histogram: now always 0 or 1, so a
       // clean run reads ticks 0/N/0/0 — the proof that the beat is gone.
       let ticksThisFrame = 0;
-      if (frameTime > 0) { simulateTick(gs, frameTime); ticksThisFrame = 1; }
+      if (gs._smoothDt > 0) { simulateTick(gs, gs._smoothDt); ticksThisFrame = 1; }
 
       // Mirror gs.state into React so menu DOM can react to play/dead transitions.
       if (gs.state !== gs._lastViewSeen) {
