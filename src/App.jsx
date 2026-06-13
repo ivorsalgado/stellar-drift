@@ -135,37 +135,34 @@ const SHOW_FPS = typeof location !== 'undefined' && /[?&]fps\b/.test(location.se
 // accumulates the real elapsed time and runs as many fixed ticks as needed to
 // catch up to real time ("Fix Your Timestep!", Glenn Fiedler).
 //
-// PER-FRAME → PER-SECOND CONVERSION AUDIT (the original May-24 build advanced a
-// fixed amount per *rendered frame*, assuming 60 fps). Conversion strategy:
+// TIME MODEL (delta-time). The original May-24 build advanced a fixed amount per
+// *rendered frame*, assuming 60 fps — so speed halved at 30 fps. simulateTick()
+// now runs ONCE per frame with the real elapsed dt (see its header). Quantities
+// fall into three kinds:
 //   • CONTINUOUS LINEAR MOTION (ship vertical velocity/gravity/thrust, world
-//     scroll speed) is expressed in units PER SECOND and integrated by the
-//     fixed timestep in simulateTick() (v*dtSec). The per-frame → per-second
-//     factor depends on the time exponent: a VELOCITY (px/frame) scales ×60
-//     (= TICKS_PER_SECOND); an ACCELERATION (px/frame²) scales ×60² (=3600),
-//     because the time unit is squared. So in makePhysics(): impulse,
-//     maxRiseSpeed, maxFallSpeed, baseSpeed, speedPerObstacle use ×60, but
-//     gravity uses ×60². (NOTE: this corrects the spec's "×60 for everything"
-//     calibration hint — ×60 gravity is 60× too weak and sends the ship to the
-//     top of the screen on a single tap.)
+//     scroll speed) is expressed in units PER SECOND and integrated by dtSec.
+//     The per-frame → per-second factor depends on the time exponent: a VELOCITY
+//     (px/frame) scales ×60 (= TICKS_PER_SECOND); an ACCELERATION (px/frame²)
+//     scales ×60² (=3600), because the time unit is squared. So in makePhysics():
+//     impulse, maxRiseSpeed, maxFallSpeed, baseSpeed, speedPerObstacle use ×60,
+//     but gravity uses ×60². (NOTE: this corrects the spec's "×60 for everything"
+//     hint — ×60 gravity is 60× too weak and rockets the ship up on one tap.)
 //   • DURATION / TICK COUNTERS (comboTimer 180, transitionCard 120, deathOverlay
 //     20, spawnInterval 95→55, framesSinceSpawn, shake/flash, planetTransition
-//     +1/90, the flap cooldown, particle/ring/popup life) are counted in SIM
-//     TICKS. A tick is a fixed 16.667 ms quantum, so a tick count already encodes
-//     a fixed wall-clock duration and is inherently frame-rate-independent — no
-//     literal ms conversion is needed, and avoiding it keeps the May-24 feel
-//     byte-identical (one tick == one old 60 fps frame) with no rounding drift.
-//   • The LATERAL damped-spring (lateralTiltInfluence/Damping/Recenter/AmbientSway)
-//     and cosmetic particle/dust/ring velocities are kept in per-tick units:
-//     multiplicative damping/springs have no clean ×60 per-second form, and at a
-//     fixed 60 Hz timestep per-tick == per-frame, so feel is preserved exactly.
-//   • gs.time stays an integer TICK counter (++ per tick). All draw-time animation
-//     phases (Math.sin(gs.time*…), gs.time%2 trail, twinkle) therefore run at the
-//     correct rate at any display fps.
+//     +1/90, particle/ring/popup life) are still expressed as 60 Hz tick counts,
+//     but advanced by the frame scale fs = dt/FIXED_DT each frame (−=fs / +=fs)
+//     so they keep their wall-clock duration at any fps. At 60 fps fs≈1, i.e.
+//     identical to the old one-tick decrement.
+//   • The LATERAL damped-spring and cosmetic particle/dust/ring velocities stay
+//     in per-tick units, scaled to the frame: linear terms ×fs, multiplicative
+//     decays ×pow(k, fs). gs.time is a 60 Hz clock advanced by fs (fractional),
+//     read only via Math.sin(…) for animation phases — trail emission uses a
+//     ship.trailT accumulator instead of the old gs.time%N test.
 // NOTE: atmospheric dust used to advance inside drawDust() (the render path),
 // which made it frame-rate-dependent; its integration is now in simulateTick().
-const FIXED_DT = 1000 / 60;                 // ms of simulated time per tick (16.667 ms)
+const FIXED_DT = 1000 / 60;                 // ms of one 60 Hz reference tick (16.667 ms)
 const TICKS_PER_SECOND = 1000 / FIXED_DT;   // 60 — the per-frame → per-second factor
-const MAX_FRAME_TIME = 250;                 // clamp accumulated time (spiral-of-death guard)
+const MAX_FRAME_TIME = 250;                 // clamp a single frame's dt (tab-restore guard)
 
 // RENDERING: everything is drawn at its LIVE simulated position — there is no
 // render interpolation. Batch 2 added it to smooth low-refresh (30 fps Low
@@ -967,11 +964,10 @@ export default function StellarDrift() {
       time: 0,
       lastFlapFrame: -10,
       hasInteracted: false,
-      // Fixed-timestep accumulator state (Phase 0.5). _lastFrameTime is set on
-      // the first rendered frame; _accumulator banks real elapsed time and is
-      // drained one FIXED_DT tick at a time in step().
+      // Delta-time loop state: _lastFrameTime (set on the first rendered frame)
+      // is differenced each frame to get the real elapsed dt passed to
+      // simulateTick(). See the SIMULATION STEP note.
       _lastFrameTime: null,
-      _accumulator: 0,
     };
   }, [makeStars, makeDust]);
 
@@ -3043,19 +3039,26 @@ export default function StellarDrift() {
   }, [setMusicLayer]);
 
   // ─────────────────────────────────────────────────────────────
-  // FIXED-TIMESTEP SIMULATION
+  // SIMULATION STEP (delta-time)
   // ─────────────────────────────────────────────────────────────
-  // Advances the game by exactly one fixed 16.667 ms tick. Called 0 or more
-  // times per rendered frame by the accumulator in step(), so simulated time
-  // always tracks real time regardless of the display refresh rate. See the
-  // conversion audit near the top of this file for the per-frame → per-second
-  // rationale. Rendering reads whatever state the last tick left behind.
-  const simulateTick = useCallback((gs) => {
+  // Advances the game by one frame's worth of real elapsed time. Called exactly
+  // ONCE per rendered frame (see step()), locked to the display — so there is no
+  // tick/refresh beat, which was the source of the obstacle shake. dtMs is the
+  // clamped real frame time. Two scales are used:
+  //   • dtSec = dtMs/1000 — integrates per-SECOND quantities (gravity, vy, world
+  //     scroll). Frame-rate independent by construction.
+  //   • fs = dtMs/FIXED_DT — "how many 60 Hz ticks this frame represents" (≈1 at
+  //     60 fps, ≈2 at 30 fps). Scales the per-tick quantities carried over from
+  //     the May-24 feel: cosmetic velocities (×fs), tick-count timers (−=fs), and
+  //     multiplicative decays (×pow(k, fs)). At fs=1 every line equals the old
+  //     fixed 60 Hz tick, so 60 fps feel is preserved exactly.
+  const simulateTick = useCallback((gs, dtMs) => {
     const w = gs.w, h = gs.h;
     const phys = gs.phys;
     const s = phys.scale;
-    const dtSec = FIXED_DT / 1000; // seconds of simulated time this tick (1/60)
-    gs.time++;
+    const dtSec = dtMs / 1000;  // real elapsed seconds (per-second integration)
+    const fs = dtMs / FIXED_DT; // frame scale: # of 60 Hz ticks this frame
+    gs.time += fs;
 
     const planet = PLANETS[gs.planetIdx];
     // World scroll speed in px/s: base + per-level bonus + (score × per-obstacle).
@@ -3065,13 +3068,13 @@ export default function StellarDrift() {
 
     // Planet transition crossfade (90 ticks = 1.5 s)
     if (gs.planetTransition < 1) {
-      gs.planetTransition = Math.min(1, gs.planetTransition + 1 / 90);
+      gs.planetTransition = Math.min(1, gs.planetTransition + fs / 90);
     }
 
     // ── UPDATE ──
     if (gs.state === 'playing') {
       // Spawn (spawnInterval / framesSinceSpawn count sim ticks)
-      gs.framesSinceSpawn++;
+      gs.framesSinceSpawn += fs;
       if (gs.framesSinceSpawn >= gs.spawnInterval) {
         spawnColumn(gs);
       }
@@ -3080,21 +3083,24 @@ export default function StellarDrift() {
       if (gs.ship.vy < phys.maxRiseSpeed) gs.ship.vy = phys.maxRiseSpeed;
       if (gs.ship.vy > phys.maxFallSpeed) gs.ship.vy = phys.maxFallSpeed;
       gs.ship.y += gs.ship.vy * dtSec;
-      // Smoothed tilt — driven by the per-tick vertical displacement (vy*dtSec,
-      // i.e. the old per-frame vy), unscaled so feel is viewport-independent.
-      const targetTilt = Math.max(-0.5, Math.min(0.9, (gs.ship.vy * dtSec / s) * 0.06));
-      gs.ship.tilt += (targetTilt - gs.ship.tilt) * phys.tiltSmoothing;
-      // Lateral drift — self-contained damped spring, kept in per-tick units
-      // (multiplicative damping/spring has no clean per-second ×60 form; at a
-      // fixed 60 Hz timestep one tick == one May-24 frame, so feel is identical).
+      // Smoothed tilt — target maps velocity→angle with a FIXED 60 Hz reference
+      // (so the mapping is fps-independent); smoothing uses the frame-rate-correct
+      // exponential decay form so it settles at the same wall-clock rate.
+      const targetTilt = Math.max(-0.5, Math.min(0.9, (gs.ship.vy / TICKS_PER_SECOND / s) * 0.06));
+      gs.ship.tilt += (targetTilt - gs.ship.tilt) * (1 - Math.pow(1 - phys.tiltSmoothing, fs));
+      // Lateral drift — cosmetic damped spring in per-tick units, scaled to the
+      // frame: impulses ×fs, multiplicative damping ^fs, displacement ×fs.
       const restX = gs.w * phys.shipX;
-      gs.ship.vx += gs.ship.tilt * phys.lateralTiltInfluence;
-      gs.ship.vx += Math.sin(gs.time * 0.04) * 0.015 * phys.lateralAmbientSway;
-      gs.ship.vx += (restX - gs.ship.x) * phys.lateralRecenter;
-      gs.ship.vx *= phys.lateralDamping;
-      gs.ship.x += gs.ship.vx;
-      // Trail
-      if (gs.time % 2 === 0) {
+      gs.ship.vx += gs.ship.tilt * phys.lateralTiltInfluence * fs;
+      gs.ship.vx += Math.sin(gs.time * 0.04) * 0.015 * phys.lateralAmbientSway * fs;
+      gs.ship.vx += (restX - gs.ship.x) * phys.lateralRecenter * fs;
+      gs.ship.vx *= Math.pow(phys.lateralDamping, fs);
+      gs.ship.x += gs.ship.vx * fs;
+      // Trail — emit on a fixed ~2-tick cadence regardless of fps (was gs.time%2,
+      // which no longer works with a fractional, frame-scaled clock).
+      gs.ship.trailT = (gs.ship.trailT || 0) + fs;
+      if (gs.ship.trailT >= 2) {
+        gs.ship.trailT %= 2;
         gs.ship.trail.push({ x: gs.ship.x - 12 * s, y: gs.ship.y });
         if (gs.ship.trail.length > 12) gs.ship.trail.shift();
       }
@@ -3188,8 +3194,8 @@ export default function StellarDrift() {
       for (let i = gs.fragments.length - 1; i >= 0; i--) {
         const f = gs.fragments[i];
         f.x -= moveSpeed * dtSec;
-        f.rot += 0.045;
-        f.bounce += 0.08;
+        f.rot += 0.045 * fs;
+        f.bounce += 0.08 * fs;
         if (!f.collected) {
           const dx = f.x - gs.ship.x;
           const dy = f.y - gs.ship.y;
@@ -3225,70 +3231,74 @@ export default function StellarDrift() {
       }
       // Combo timer
       if (gs.comboTimer > 0) {
-        gs.comboTimer--;
-        if (gs.comboTimer === 0) gs.combo = 0;
+        gs.comboTimer -= fs;
+        if (gs.comboTimer <= 0) { gs.comboTimer = 0; gs.combo = 0; }
       }
     } else if (gs.state === 'start') {
       // Idle ship bob
-      gs.ship.idleT += 0.04;
+      gs.ship.idleT += 0.04 * fs;
       gs.ship.y = h * 0.5 + Math.sin(gs.ship.idleT) * 14 * s;
       gs.ship.vy = Math.cos(gs.ship.idleT) * 14 * 0.04 * s * TICKS_PER_SECOND; // px/s (sign drives flame)
       gs.ship.vx = 0;
       gs.ship.tilt = Math.cos(gs.ship.idleT) * 0.12;
       gs.ship.x = w * phys.shipX;
-      if (gs.time % 4 === 0) {
+      // Trail — fixed ~4-tick cadence (was gs.time%4).
+      gs.ship.trailT = (gs.ship.trailT || 0) + fs;
+      if (gs.ship.trailT >= 4) {
+        gs.ship.trailT %= 4;
         gs.ship.trail.push({ x: gs.ship.x - 12 * s, y: gs.ship.y });
         if (gs.ship.trail.length > 10) gs.ship.trail.shift();
       }
     } else if (gs.state === 'dead') {
-      gs.deathOverlay = Math.min(20, gs.deathOverlay + 1);
-      // Ship falls — per-second gravity integrated by dtSec; lateral per-tick.
+      gs.deathOverlay = Math.min(20, gs.deathOverlay + fs);
+      // Ship falls — per-second gravity integrated by dtSec; lateral per-tick (×fs).
       gs.ship.vy += phys.gravity * 0.6 * dtSec;
       gs.ship.y += gs.ship.vy * dtSec;
-      gs.ship.x += gs.ship.vx;
-      gs.ship.vx *= 0.95;
-      gs.ship.tilt = Math.min(1.2, gs.ship.tilt + 0.02);
+      gs.ship.x += gs.ship.vx * fs;
+      gs.ship.vx *= Math.pow(0.95, fs);
+      gs.ship.tilt = Math.min(1.2, gs.ship.tilt + 0.02 * fs);
     }
 
-    // Particles update (cosmetic bursts; velocities kept in per-tick units)
+    // Particles update (cosmetic bursts; per-tick velocities scaled ×fs)
     for (let i = gs.particles.length - 1; i >= 0; i--) {
       const p = gs.particles[i];
-      p.x += p.vx; p.y += p.vy;
-      p.vy += 0.08 * s;
-      p.vx *= 0.98;
-      p.life--;
+      p.x += p.vx * fs; p.y += p.vy * fs;
+      p.vy += 0.08 * s * fs;
+      p.vx *= Math.pow(0.98, fs);
+      p.life -= fs;
       if (p.life <= 0) gs.particles.splice(i, 1);
     }
     // Rings update
     for (let i = gs.rings.length - 1; i >= 0; i--) {
       const r = gs.rings[i];
-      r.radius += 2.5 * (r.scale || s);
-      r.life--;
+      r.radius += 2.5 * (r.scale || s) * fs;
+      r.life -= fs;
       if (r.life <= 0) gs.rings.splice(i, 1);
     }
     // Popups update
     for (let i = gs.popups.length - 1; i >= 0; i--) {
       const p = gs.popups[i];
-      p.y += p.vy || -1 * s;
-      p.life--;
+      p.y += (p.vy || -1 * s) * fs;
+      p.life -= fs;
       if (p.life <= 0) gs.popups.splice(i, 1);
     }
     // Atmospheric dust — advanced here (previously inside drawDust) so its drift
-    // is frame-rate independent. Velocities are per-tick (ambient / cosmetic).
+    // is frame-rate independent. Per-tick velocities scaled ×fs.
     for (let i = 0; i < gs.dust.length; i++) {
       const d = gs.dust[i];
-      d.x += d.vx;
-      d.y += d.vy;
+      d.x += d.vx * fs;
+      d.y += d.vy * fs;
       if (d.x < -10) d.x = w + 10;
       if (d.y < 0) d.y = h;
       if (d.y > h) d.y = 0;
     }
 
-    // Timers / screen-shake decay (tick countdowns)
-    if (gs.scoreFlash > 0) gs.scoreFlash--;
-    if (gs.shake > 0) gs.shake--;
-    if (gs.flash > 0) gs.flash--;
-    if (gs.transitionCard > 0) gs.transitionCard--;
+    // Timers / screen-shake decay (tick countdowns, −=fs; clamped at 0 since the
+    // fractional step won't land exactly on it).
+    if (gs.scoreFlash > 0) gs.scoreFlash = Math.max(0, gs.scoreFlash - fs);
+    if (gs.shake > 0) gs.shake = Math.max(0, gs.shake - fs);
+    if (gs.flash > 0) gs.flash = Math.max(0, gs.flash - fs);
+    if (gs.transitionCard > 0) gs.transitionCard = Math.max(0, gs.transitionCard - fs);
   }, [spawnColumn, die, playScore, playCombo, playLevelUp, playFragment, setMusicLayer, makeStars, makeDust]);
 
   // ─────────────────────────────────────────────────────────────
@@ -3306,11 +3316,13 @@ export default function StellarDrift() {
     try {
       const ctx = canvas.getContext('2d');
       const w = gs.w, h = gs.h;
-      // ── FIXED-TIMESTEP ACCUMULATOR ──
-      // Bank real elapsed time and drain it one fixed 60 Hz tick at a time, so
-      // the simulation runs at a constant wall-clock rate regardless of the
-      // display refresh. frameTime is clamped to MAX_FRAME_TIME so a backgrounded
-      // tab can't bank seconds of time and spiral / fast-forward on return.
+      // ── DELTA-TIME STEP ──
+      // Exactly one simulation update per rendered frame, advanced by the real
+      // elapsed time and locked to the display. One update/frame means the sim
+      // can't beat against the refresh rate (the obstacle-shake cause); the dt
+      // scaling inside simulateTick keeps speed frame-rate independent. frameTime
+      // is clamped to MAX_FRAME_TIME so a backgrounded tab can't fast-forward on
+      // return.
       const now = timestamp ?? performance.now();
       // ?fps diagnostic: start of this frame’s JS work (no-op unless flag on).
       const _jsStart = SHOW_FPS ? performance.now() : 0;
@@ -3319,13 +3331,10 @@ export default function StellarDrift() {
       gs._lastFrameTime = now;
       if (frameTime < 0) frameTime = 0;
       if (frameTime > MAX_FRAME_TIME) frameTime = MAX_FRAME_TIME;
-      gs._accumulator += frameTime;
+      // ticksThisFrame stays for the ?fps histogram: now always 0 or 1, so a
+      // clean run reads ticks 0/N/0/0 — the proof that the beat is gone.
       let ticksThisFrame = 0;
-      while (gs._accumulator >= FIXED_DT) {
-        simulateTick(gs);
-        gs._accumulator -= FIXED_DT;
-        ticksThisFrame++;
-      }
+      if (frameTime > 0) { simulateTick(gs, frameTime); ticksThisFrame = 1; }
 
       // Mirror gs.state into React so menu DOM can react to play/dead transitions.
       if (gs.state !== gs._lastViewSeen) {
