@@ -3487,11 +3487,17 @@ export default function StellarDrift() {
         const st = gs._fps || (gs._fps = {
           last: now, shownAt: now, n: 0, dSum: 0, dMax: 0, jSum: 0, tickSum: 0,
           fps: 0, dmax: 0, jms: '0.0', stps: 0,
+          // TEMP tick-variance diagnostic: histogram of ticks-per-frame this
+          // window (bucket 3 = "3 or more"), and the displayed snapshot of it.
+          // A clean 1:1 sim/render lock reads 1:N with 0:0 and 2:0 at 60 fps;
+          // accumulator beat shows non-zero 0 and 2 buckets.
+          tBuckets: [0, 0, 0, 0], tHist: '0/0/0/0',
         });
         const interval = now - st.last;
         st.last = now;
         const jsMs = performance.now() - _jsStart;
         st.tickSum += ticksThisFrame; // count sim ticks regardless of frame interval
+        st.tBuckets[Math.min(ticksThisFrame, 3)]++; // per-frame tick-count histogram
         if (interval > 0 && interval < 1000) {
           st.n++; st.dSum += interval; st.jSum += jsMs;
           if (interval > st.dMax) st.dMax = interval;
@@ -3504,12 +3510,14 @@ export default function StellarDrift() {
           // Simulation rate — the key Phase 0.5 diagnostic: should read ~60
           // even when the display fps line reads ~30 (iOS Low Power Mode).
           st.stps = Math.round((st.tickSum * 1000) / windowMs);
+          st.tHist = st.tBuckets.join('/'); // frames with 0 / 1 / 2 / 3+ ticks
+          st.tBuckets = [0, 0, 0, 0];
           st.shownAt = now; st.n = 0; st.dSum = 0; st.dMax = 0; st.jSum = 0; st.tickSum = 0;
         }
         ctx.save();
         ctx.font = '600 13px ui-monospace, Menlo, monospace';
         ctx.textAlign = 'left'; ctx.textBaseline = 'top';
-        const lines = [`${st.fps} fps`, `${st.stps} sim/s`, `frame max ${st.dmax}ms`, `js ${st.jms}ms`];
+        const lines = [`${st.fps} fps`, `${st.stps} sim/s`, `ticks ${st.tHist}`, `frame max ${st.dmax}ms`, `js ${st.jms}ms`];
         // Bottom-left: the top corners are covered by DOM HUD (fragment pill,
         // trophy/settings buttons). Lifted to clear Safari's bottom bar.
         const boxH = 16 * lines.length + 12;
