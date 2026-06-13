@@ -136,6 +136,14 @@ const SHOW_FPS = typeof location !== 'undefined' && /[?&]fps\b/.test(location.se
 // default shakes, the cause is the dt-scaled motion; if both shake, it isn't.
 const LEGACY_STEP = typeof location !== 'undefined' && /[?&]legacy\b/.test(location.search);
 
+// TEMP render-cost diagnostics. The A/B test showed the shake is identical with
+// May-24 motion (mode legacy) — so it's not the timestep. js is ~0.4ms but frame
+// max jumps 17→31ms during play, i.e. GPU-bound. These flags disable the two
+// per-frame full-canvas blur passes (the prime iOS GPU cost) to test if they're
+// the cause: ?nobloom skips the bloom glow, ?nofrost skips the frosted backdrop.
+const NO_BLOOM = typeof location !== 'undefined' && /[?&]nobloom\b/.test(location.search);
+const NO_FROST = typeof location !== 'undefined' && /[?&]nofrost\b/.test(location.search);
+
 // ── Fixed-timestep simulation (Phase 0.5) ──────────────────────────
 // The simulation advances in fixed 60 Hz ticks, decoupled from the display
 // refresh rate, so motion runs at the same wall-clock speed whether the device
@@ -3454,7 +3462,7 @@ export default function StellarDrift() {
       // frosted-glass cards this frame. One small blur per frame instead
       // of three large ones per card.
       const bs = blurredSceneRef.current;
-      if (bs && bs.width > 0) {
+      if (!NO_FROST && bs && bs.width > 0) {
         const bsCtx = bs.getContext('2d');
         bsCtx.setTransform(1, 0, 0, 1, 0, 0);
         bsCtx.clearRect(0, 0, bs.width, bs.height);
@@ -3470,14 +3478,16 @@ export default function StellarDrift() {
       // has a dpr transform applied — omitting the size double-scales by dpr.
       ctx.drawImage(off, 0, 0, w, h);
       // Bloom: blurred copy at low opacity
-      ctx.save();
-      ctx.globalAlpha = 0.40;
-      ctx.globalCompositeOperation = 'lighter';
-      ctx.filter = `blur(${8 * s}px)`;
-      ctx.drawImage(off, 0, 0, w, h);
-      ctx.filter = 'none';
-      ctx.globalCompositeOperation = 'source-over';
-      ctx.restore();
+      if (!NO_BLOOM) {
+        ctx.save();
+        ctx.globalAlpha = 0.40;
+        ctx.globalCompositeOperation = 'lighter';
+        ctx.filter = `blur(${8 * s}px)`;
+        ctx.drawImage(off, 0, 0, w, h);
+        ctx.filter = 'none';
+        ctx.globalCompositeOperation = 'source-over';
+        ctx.restore();
+      }
 
       // Vignette — soft dark edges to focus the eye, deepens for the start menu
       ctx.save();
@@ -3553,13 +3563,14 @@ export default function StellarDrift() {
         ctx.save();
         ctx.font = '600 13px ui-monospace, Menlo, monospace';
         ctx.textAlign = 'left'; ctx.textBaseline = 'top';
-        const lines = [`mode ${LEGACY_STEP ? 'legacy' : 'dt'}`, `${st.fps} fps`, `${st.stps} sim/s`, `ticks ${st.tHist}`, `frame max ${st.dmax}ms`, `js ${st.jms}ms`];
+        const fxLabel = `${NO_BLOOM ? '-bloom ' : ''}${NO_FROST ? '-frost' : ''}`.trim() || 'full';
+        const lines = [`mode ${LEGACY_STEP ? 'legacy' : 'dt'}`, `fx ${fxLabel}`, `${st.fps} fps`, `${st.stps} sim/s`, `ticks ${st.tHist}`, `frame max ${st.dmax}ms`, `js ${st.jms}ms`];
         // Bottom-left: the top corners are covered by DOM HUD (fragment pill,
         // trophy/settings buttons). Lifted to clear Safari's bottom bar.
         const boxH = 16 * lines.length + 12;
         const boxY = h - boxH - 90;
         ctx.fillStyle = 'rgba(0,0,0,0.62)';
-        ctx.fillRect(8, boxY, 132, boxH);
+        ctx.fillRect(8, boxY, 156, boxH);
         ctx.fillStyle = '#00ff88';
         lines.forEach((t, i) => ctx.fillText(t, 14, boxY + 6 + i * 16));
         ctx.restore();
