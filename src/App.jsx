@@ -128,6 +128,14 @@ const FROSTED_SCENE_BLUR_PX = 5;
 // players, read once at module load. Purely diagnostic; changes no game timing.
 const SHOW_FPS = typeof location !== 'undefined' && /[?&]fps\b/.test(location.search);
 
+// TEMP A/B diagnostic: append ?legacy to drive the sim with a CONSTANT per-frame
+// step (FIXED_DT) instead of the real/smoothed dt. Since the per-second physics
+// × FIXED_DT exactly equals May-24's old per-frame amounts, ?legacy reproduces
+// May-24 motion precisely (and, like May-24, runs at half speed at 30 fps). Lets
+// us flip motion models on one deployment: if ?legacy is smooth at 60 fps and the
+// default shakes, the cause is the dt-scaled motion; if both shake, it isn't.
+const LEGACY_STEP = typeof location !== 'undefined' && /[?&]legacy\b/.test(location.search);
+
 // ── Fixed-timestep simulation (Phase 0.5) ──────────────────────────
 // The simulation advances in fixed 60 Hz ticks, decoupled from the display
 // refresh rate, so motion runs at the same wall-clock speed whether the device
@@ -3350,8 +3358,10 @@ export default function StellarDrift() {
       }
       // ticksThisFrame stays for the ?fps histogram: now always 0 or 1, so a
       // clean run reads ticks 0/N/0/0 — the proof that the beat is gone.
+      // ?legacy forces a constant step (= May-24 motion) for the A/B test.
+      const simDt = LEGACY_STEP ? FIXED_DT : gs._smoothDt;
       let ticksThisFrame = 0;
-      if (gs._smoothDt > 0) { simulateTick(gs, gs._smoothDt); ticksThisFrame = 1; }
+      if (simDt > 0) { simulateTick(gs, simDt); ticksThisFrame = 1; }
 
       // Mirror gs.state into React so menu DOM can react to play/dead transitions.
       if (gs.state !== gs._lastViewSeen) {
@@ -3543,7 +3553,7 @@ export default function StellarDrift() {
         ctx.save();
         ctx.font = '600 13px ui-monospace, Menlo, monospace';
         ctx.textAlign = 'left'; ctx.textBaseline = 'top';
-        const lines = [`${st.fps} fps`, `${st.stps} sim/s`, `ticks ${st.tHist}`, `frame max ${st.dmax}ms`, `js ${st.jms}ms`];
+        const lines = [`mode ${LEGACY_STEP ? 'legacy' : 'dt'}`, `${st.fps} fps`, `${st.stps} sim/s`, `ticks ${st.tHist}`, `frame max ${st.dmax}ms`, `js ${st.jms}ms`];
         // Bottom-left: the top corners are covered by DOM HUD (fragment pill,
         // trophy/settings buttons). Lifted to clear Safari's bottom bar.
         const boxH = 16 * lines.length + 12;
